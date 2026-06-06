@@ -1,0 +1,32 @@
+GNU AFFERO GENERAL PUBLIC LICENSE
+Version 3, 19 November 2007
+
+Copyright (C) 2026 LLM 答题助手 Contributors
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+---
+
+The full text of the AGPL-3.0 license can be found at:
+https://www.gnu.org/licenses/agpl-3.0.html
+
+Key points of AGPL-3.0:
+
+1. You may copy, distribute and modify the software.
+2. If you distribute modified versions, you must release the source code
+   under the same AGPL-3.0 license.
+3. If you run a modified version of the software as a network service (SaaS),
+   you must make the complete source code available to users of that service.
+   This is the key difference from GPL-3.0 — the "Affero clause".
+4. No warranty is provided.
