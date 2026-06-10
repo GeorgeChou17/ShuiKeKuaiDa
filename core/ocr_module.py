@@ -195,7 +195,7 @@ def recognize_image(
             "error": "错误信息（如果有）",
         }
     """
-    result = {"text": "", "lines": [], "success": False, "error": None}
+    result = {"text": "", "lines": [], "success": False, "error": None, "scale_factor": 1.0}
 
     ocr = _get_paddle_ocr(use_angle_cls=use_angle_cls, lang=lang, device=device)
     if ocr is None:
@@ -211,15 +211,16 @@ def recognize_image(
                 img = img.convert("RGB")
                 # 图片预处理：限制最大边长以提速 OCR
                 w, h = img.size
+                orig_w, orig_h = w, h
                 if max(w, h) > max_img_side:
                     ratio = max_img_side / max(w, h)
                     new_size = (int(w * ratio), int(h * ratio))
-                    # 使用高效的重采样
                     try:
                         img = img.resize(new_size, Image.LANCZOS)
                     except AttributeError:
                         img = img.resize(new_size, Image.BILINEAR)
-                    logger.debug(f"图片已缩放: {w}x{h} → {new_size[0]}x{new_size[1]}")
+                    result["scale_factor"] = orig_w / new_size[0]  # 缩回原图的倍率
+                    logger.debug(f"图片已缩放: {w}x{h} → {new_size[0]}x{new_size[1]}, scale={result['scale_factor']:.3f}")
                 img = np.array(img)
             input_data = img
         elif img_path is not None:
@@ -340,10 +341,9 @@ def parse_question_text(ocr_text: str) -> dict:
     elif any(kw in raw for kw in ["简答", "简答题", "简答題", "essay"]):
         result["question_type"] = "简答"
 
-    # 提取选项（A. xxx / A、xxx / A xxx）
-    # 支持 A-L 及中文选项符号
+    # 提取选项（A. xxx / A、xxx / A 单独一行）
     option_pattern = re.compile(
-        r"^[\s]*([A-La-lＡ-Ｌ①-⑫1-9])[\.\、\s、\.、\)](.*)$",
+        r"^[\s]*([A-La-lＡ-Ｌ①-⑫1-9])([\.\、\s、\.、\)].*|$)",
         re.MULTILINE
     )
     # 全角→半角，中文数字→字母 映射表
@@ -364,11 +364,18 @@ def parse_question_text(ocr_text: str) -> dict:
     for line in lines:
         m = option_pattern.match(line.strip())
         if m:
-            in_options = True
             label = m.group(1).upper()
+            text = m.group(2).strip()
+            # 数字标签（1-9）特殊处理：只接受短文本，且不包含题目关键词
+            if label.isdigit():
+                if not in_options and (len(text) > 20 or any(kw in text for kw in ["下面", "以下", "正确", "错误", "是", "最", "分）", "?)"])):
+                    # 这是题目序号，不是选项
+                    if not in_options:
+                        stem_lines.append(line.strip())
+                    continue
+            in_options = True
             # 统一转为 A/B/C/D...
             label = _FULLWIDTH_MAP.get(label, label)
-            text = m.group(2).strip()
             option_lines.append((label, text))
             result["option_map"][label] = text
         else:
@@ -381,6 +388,79 @@ def parse_question_text(ocr_text: str) -> dict:
     return result
 
 
+# ========== 动态选项位置提取 ==========
+
+def extract_option_positions(ocr_lines: list, option_names: list = None, scale_factor: float = 1.0, filter_region: dict = None) -> dict:
+    """
+    从 PaddleOCR 的文字块坐标中提取选项按钮的屏幕位置
+    
+    参数:
+        ocr_lines: [{"text": "...", "box": [[x1,y1],...], ...}, ...]
+        option_names: 期望的选项名称列表，如 ["A","B","C","D","E"]
+        scale_factor: 坐标缩放因子（>1 表示需放大回原图）
+        filter_region: 空间过滤区域 {"x","y","w","h"}（只在此区域内的文字块才被匹配）
+    
+    返回:
+        {"A": (x, y), "B": (x, y), ...}  选项中心点在截图坐标系中的坐标
+    """
+    import re
+    
+    if option_names is None:
+        option_names = [chr(ord("A") + i) for i in range(12)]
+    
+    result = {name: None for name in option_names}
+    result_second = {name: None for name in option_names}  # 区域外备选
+    
+    for line in ocr_lines:
+        text = line.get("text", "").strip()
+        box = line.get("box", [])
+        
+        if not box or len(box) < 4:
+            continue
+        
+        xs = [p[0] * scale_factor for p in box if len(p) >= 2]
+        ys = [p[1] * scale_factor for p in box if len(p) >= 2]
+        if not xs or not ys:
+            continue
+        center_x = sum(xs) / len(xs)
+        center_y = sum(ys) / len(ys)
+        
+        # 空间过滤：优先区域内，区域外也行
+        in_region = True
+        if filter_region:
+            rx = filter_region.get("x", 0)
+            ry = filter_region.get("y", 0)
+            rw = filter_region.get("w", 0)
+            rh = filter_region.get("h", 0)
+            # 放宽：检查文字块是否与区域有重叠（而非仅中心点）
+            box_x1 = min(xs); box_x2 = max(xs)
+            box_y1 = min(ys); box_y2 = max(ys)
+            in_region = (box_x2 >= rx and box_x1 <= rx + rw and
+                        box_y2 >= ry and box_y1 <= ry + rh)
+        
+        target = result if in_region else result_second
+        
+        for name in option_names:
+            if target[name] is not None:
+                continue
+            patterns = [
+                rf"^{name}[\.\、\s\、\.、\)]", 
+                rf"^{name}（",
+                rf"^{name}$",
+            ]
+            for pat in patterns:
+                if re.match(pat, text):
+                    target[name] = (center_x, center_y)
+                    break
+    
+    # 合并：区域内优先，区域外补缺
+    for name in option_names:
+        if result[name] is None and result_second[name] is not None:
+            result[name] = result_second[name]
+    
+    return result
+
+
 # ========== 异步识别封装（供 GUI 线程调用）==========
 from PyQt5.QtCore import QObject, pyqtSignal, QThread
 
@@ -388,10 +468,10 @@ from PyQt5.QtCore import QObject, pyqtSignal, QThread
 class OCRWorker(QThread):
     """
     在后台线程运行 OCR，避免界面卡顿
-    finished(text: str, parsed: dict): 识别完成信号
+    finished(text: str, parsed: dict, ocr_lines: list): 识别完成信号
     error(msg: str): 错误信号
     """
-    finished = pyqtSignal(str, dict)   # raw_text, parsed_dict
+    finished = pyqtSignal(str, dict, list, float)   # raw_text, parsed_dict, ocr_lines, scale_factor
     error = pyqtSignal(str)
 
     def __init__(self, img_path: str | None = None, img=None,
@@ -419,6 +499,8 @@ class OCRWorker(QThread):
                 return
             raw_text = ocr_result["text"]
             parsed = parse_question_text(raw_text)
-            self.finished.emit(raw_text, parsed)
+            ocr_lines = ocr_result.get("lines", [])
+            scale = ocr_result.get("scale_factor", 1.0)
+            self.finished.emit(raw_text, parsed, ocr_lines, scale)
         except Exception as e:
             self.error.emit(str(e))

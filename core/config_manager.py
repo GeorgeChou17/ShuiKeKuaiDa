@@ -12,6 +12,7 @@
 """
 import json
 import os
+import logging
 from PyQt5.QtCore import QRect, QPoint
 
 
@@ -27,6 +28,8 @@ class ConfigManager:
         config_dir = os.path.join(appdata, self.ORG_NAME, self.APP_NAME)
         os.makedirs(config_dir, exist_ok=True)
         self._config_path = os.path.join(config_dir, "config.json")
+        self._presets_dir = os.path.join(config_dir, "presets")
+        os.makedirs(self._presets_dir, exist_ok=True)
         self._data = self._load_file()
         self._defaults = self._get_defaults()
         # 合并默认值（新增字段自动补齐）
@@ -41,6 +44,12 @@ class ConfigManager:
             self._data["llm/base_url"] = "https://api.qnaigc.com/v1"
         if self._data.get("llm/model_name") == "gpt-4o":
             self._data["llm/model_name"] = "z-ai/glm-4.5-air-free"
+        # 迁移：旧版扁平预设 → 新版分类预设（v1.3）
+        old_presets = self._data.get("presets", {})
+        # 检测是否为旧格式：顶层值是 {"options": [...], ...} 而非嵌套分类
+        if old_presets and any(isinstance(v, dict) and "options" in v for v in old_presets.values()):
+            self._data["presets"] = {"默认": old_presets}
+            self._save_file()
         self._save_file()
 
     def _load_file(self) -> dict:
@@ -77,8 +86,18 @@ class ConfigManager:
             "positions/options": [],
             # "下一题"按钮坐标 (x, y)
             "positions/next_button": None,
-            # 题型预设：{"预设名": {"options": [...], "next_button": (x,y)}}
+            # 动态选项定位（OCR 实时识别选项坐标，替代固定坐标）
+            "positions/dynamic_click": False,
+            # 选项按钮所在的大致区域（用于空间过滤，避免误点题干中的选项文字）
+            "positions/button_region": None,  # {"x": int, "y": int, "w": int, "h": int}
+            # 题型预设：{"类别名": {"预设名": {"options":..., "next_button":..., "button_region":...}}}
             "presets": {},
+            # 当前选中的预设类别
+            "presets/current_category": "默认",
+            # 答题自动停止
+            "auto/stop_mode": "none",          # "none" / "ocr" / "count"
+            "auto/total_questions": 0,         # count 模式总题数
+            "auto/progress_region": None,      # OCR 模式题号区域 {"x","y","w","h"}
             # 题型自动切换（OCR 检测后自动切换预设）
             "presets/auto_switch": True,
             # 主观题关键词（逗号分隔）
@@ -102,6 +121,8 @@ class ConfigManager:
             "ocr/device": "auto",            # 计算设备：auto/gpu/cpu（auto=优先GPU）
             # 自动刷题延迟
             "auto/delay_ms": 200,
+            "auto/retry_delay": 30,          # 429 限流后自动重试等待秒数
+            "auto/answer_interval": 0,       # 答题间隔秒数（0=无限制，可减少429）
         }
 
     # ========== 通用 ==========
@@ -171,8 +192,14 @@ class ConfigManager:
             names = ["A","B","C","D","E","F","G","H","I","J","K","L"]
             return [{"name": names[i] if i < len(names) else str(i+1),
                      "x": int(v[0]), "y": int(v[1])} for i, v in enumerate(raw)]
-        # 确保类型正确
-        return [{"name": o.get("name", "?"), "x": int(o["x"]), "y": int(o["y"])} for o in raw]
+        # 确保类型正确，过滤无效条目
+        valid = []
+        for o in raw:
+            try:
+                valid.append({"name": o.get("name", "?"), "x": int(o["x"]), "y": int(o["y"])})
+            except (KeyError, ValueError, TypeError):
+                continue
+        return valid if valid else [{"name": "A", "x": 0, "y": 0}]
 
     def set_option_positions(self, options: list):
         self.set("positions/options", options)
@@ -198,32 +225,241 @@ class ConfigManager:
         else:
             self.set("positions/next_button", pos)
 
-    # ========== 题型预设管理 ==========
-    def get_presets(self) -> dict:
-        return self.get("presets", {})
+    def get_dynamic_click(self) -> bool:
+        return bool(self.get("positions/dynamic_click", False))
 
-    def save_preset(self, name: str, options: list, next_button=None):
-        presets = self.get_presets()
-        presets[name] = {
+    def set_dynamic_click(self, enabled: bool):
+        self.set("positions/dynamic_click", enabled)
+
+    def get_dynamic_fallback(self) -> bool:
+        return bool(self.get("positions/dynamic_fallback", True))
+
+    def set_dynamic_fallback(self, enabled: bool):
+        self.set("positions/dynamic_fallback", enabled)
+
+    def get_dynamic_offset(self) -> dict:
+        return self.get("positions/dynamic_offset", None)
+
+    def set_dynamic_offset(self, offset: dict):
+        self.set("positions/dynamic_offset", offset)
+
+    # ========== 答题自动停止 ==========
+    def get_stop_mode(self) -> str:
+        return self.get("auto/stop_mode", "none")
+
+    def set_stop_mode(self, mode: str):
+        self.set("auto/stop_mode", mode)
+
+    def get_total_questions(self) -> int:
+        return int(self.get("auto/total_questions", 0))
+
+    def set_total_questions(self, count: int):
+        self.set("auto/total_questions", count)
+
+    def get_progress_region(self):
+        return self.get("auto/progress_region", None)
+
+    def set_progress_region(self, region: dict):
+        self.set("auto/progress_region", region)
+
+    # ========== 题型预设管理 ==========
+    def get_presets(self, category: str = None) -> dict:
+        """获取预设（文件系统扫描）"""
+        if category:
+            cat_dir = os.path.join(self._presets_dir, category)
+            if os.path.isdir(cat_dir):
+                result = {}
+                for f in os.listdir(cat_dir):
+                    if f.endswith(".json") and f != "_category.json":
+                        name = f[:-5]
+                        result[name] = self._load_preset_file(os.path.join(cat_dir, f))
+                return result
+            return {}
+        flat = {}
+        for cat in os.listdir(self._presets_dir):
+            cat_dir = os.path.join(self._presets_dir, cat)
+            if os.path.isdir(cat_dir):
+                for f in os.listdir(cat_dir):
+                    if f.endswith(".json") and f != "_category.json":
+                        name = f[:-5]
+                        flat[name] = self._load_preset_file(os.path.join(cat_dir, f))
+        return flat
+
+    def get_categories(self) -> list:
+        """获取所有预设分类（文件系统扫描）"""
+        cats = []
+        for name in os.listdir(self._presets_dir):
+            if os.path.isdir(os.path.join(self._presets_dir, name)):
+                cats.append(name)
+        if not cats:
+            cats = ["默认"]
+        return cats
+
+    def add_category(self, name: str):
+        os.makedirs(os.path.join(self._presets_dir, name), exist_ok=True)
+
+    def delete_category(self, name: str):
+        import shutil
+        cat_dir = os.path.join(self._presets_dir, name)
+        if os.path.isdir(cat_dir):
+            shutil.rmtree(cat_dir)
+
+    def get_current_category(self) -> str:
+        return self.get("presets/current_category", "默认")
+
+    def set_current_category(self, name: str):
+        self.set("presets/current_category", name)
+        # 加载分类级配置
+        cfg = self._load_category_config(name)
+        if cfg.get("screenshot_region"):
+            self.set("screenshot/region", cfg["screenshot_region"])
+        if cfg.get("button_region"):
+            self.set("positions/button_region", cfg["button_region"])
+        if cfg.get("type_region"):
+            self.set("positions/type_region", cfg["type_region"])
+        if cfg.get("dynamic_offset"):
+            self.set("positions/dynamic_offset", cfg["dynamic_offset"])
+
+    def save_preset(self, name: str, options: list, next_button=None, button_region=None, type_region=None, category: str = None):
+        if category is None:
+            category = self.get_current_category()
+        cat_dir = os.path.join(self._presets_dir, category)
+        os.makedirs(cat_dir, exist_ok=True)
+        # 预设文件：仅选项坐标+下一题
+        path = self._preset_path(category, name)
+        data = {
             "options": options,
             "next_button": list(next_button) if next_button else None,
         }
-        self.set("presets", presets)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        # 同时保存分类级配置
+        self._save_category_config(category)
 
-    def delete_preset(self, name: str):
-        presets = self.get_presets()
-        if name in presets:
-            del presets[name]
-            self.set("presets", presets)
+    def delete_preset(self, name: str, category: str = None):
+        if category is None:
+            category = self.get_current_category()
+        path = self._preset_path(category, name)
+        if os.path.isfile(path):
+            os.remove(path)
 
-    def load_preset(self, name: str):
-        presets = self.get_presets()
-        if name not in presets:
-            return False
-        p = presets[name]
-        self.set_option_positions(p["options"])
-        self.set_next_button_pos(p["next_button"])
-        return True
+    def load_preset(self, name: str, category: str = None, keep_positions: bool = False) -> bool:
+        """加载预设文件"""
+        if category:
+            path = self._preset_path(category, name)
+            if os.path.isfile(path):
+                self._apply_preset(self._load_preset_file(path), keep_positions)
+                return True
+        # 搜索所有分类
+        for cat in os.listdir(self._presets_dir):
+            cat_path = os.path.join(self._presets_dir, cat)
+            if os.path.isdir(cat_path):
+                path = self._preset_path(cat, name)
+                if os.path.isfile(path):
+                    self._apply_preset(self._load_preset_file(path), keep_positions)
+                    return True
+        return False
+
+    def _apply_preset(self, p: dict, keep_positions: bool = False):
+        opts = p.get("options", [])
+        nb = p.get("next_button")
+        logger = logging.getLogger(__name__)
+        if not keep_positions:
+            if opts and len(opts) >= 1:
+                first = opts[0]
+                if isinstance(first, dict) and first.get("x", 0) != 0 and first.get("y", 0) != 0:
+                    self.set_option_positions(opts)
+                    logger.debug(f"预设加载选项：{len(opts)}个, 首项={first}")
+                else:
+                    logger.debug(f"预设选项无效（{first}），跳过加载")
+            if nb is not None:
+                valid_nb = (isinstance(nb, (list, tuple)) and len(nb) >= 2 and nb[0] != 0)
+                valid_nb = valid_nb or (isinstance(nb, dict) and nb.get("x", 0) != 0)
+                if valid_nb:
+                    self.set_next_button_pos(nb)
+                else:
+                    logger.debug(f"预设下一题坐标无效（{nb}），跳过加载")
+        # 加载所属分类的配置
+        cat = self.get_current_category()
+        cat_cfg = self._load_category_config(cat)
+        if cat_cfg.get("button_region"):
+            self.set("positions/button_region", cat_cfg["button_region"])
+        if cat_cfg.get("type_region"):
+            self.set("positions/type_region", cat_cfg["type_region"])
+
+    def get_type_region(self):
+        return self.get("positions/type_region", None)
+
+    def set_type_region(self, region: dict):
+        self.set("positions/type_region", region)
+
+    # ========== 预设文件系统辅助 ==========
+
+    def _preset_path(self, category: str, name: str) -> str:
+        return os.path.join(self._presets_dir, category, f"{name}.json")
+
+    def _category_config_path(self, category: str) -> str:
+        return os.path.join(self._presets_dir, category, "_category.json")
+
+    def _save_category_config(self, category: str):
+        """保存分类级别的配置（截图区域、按钮区域、题型区域、校准偏移）"""
+        cat_dir = os.path.join(self._presets_dir, category)
+        os.makedirs(cat_dir, exist_ok=True)
+        path = self._category_config_path(category)
+        data = {
+            "screenshot_region": self.get("screenshot/region"),
+            "button_region": self.get("positions/button_region"),
+            "type_region": self.get("positions/type_region"),
+            "dynamic_offset": self.get("positions/dynamic_offset"),
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+    def _load_category_config(self, category: str) -> dict:
+        path = self._category_config_path(category)
+        if os.path.isfile(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                return {}
+        return {}
+
+    @staticmethod
+    def _load_preset_file(path: str) -> dict:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    def _migrate_presets_to_files(self):
+        """将 config.json 中内嵌的预设迁移为独立文件"""
+        old = self._data.get("presets", {})
+        if not old or not isinstance(old, dict):
+            return
+        # 检查是否已是文件结构（旧的顶层是分类名，值也是 dict）
+        migrated = False
+        for cat, presets in list(old.items()):
+            if not isinstance(presets, dict):
+                continue
+            cat_dir = os.path.join(self._presets_dir, cat)
+            for name, data in list(presets.items()):
+                if not isinstance(data, dict) or "options" not in data:
+                    continue
+                path = self._preset_path(cat, name)
+                if not os.path.exists(path):
+                    os.makedirs(cat_dir, exist_ok=True)
+                    with open(path, "w", encoding="utf-8") as f:
+                        json.dump(data, f, ensure_ascii=False, indent=2)
+                    migrated = True
+        if migrated:
+            self._data.pop("presets", None)
+            logging.getLogger(__name__).info("预设已从 config.json 迁移到独立文件")
+
+    def get_button_region(self):
+        """获取选项按钮区域（用于动态定位的空间过滤）"""
+        return self.get("positions/button_region", None)
+
+    def set_button_region(self, region: dict):
+        self.set("positions/button_region", region)
 
     def get_auto_switch_preset(self) -> bool:
         return bool(self.get("presets/auto_switch", True))
@@ -311,3 +547,15 @@ class ConfigManager:
 
     def set_auto_delay(self, ms: int):
         self.set("auto/delay_ms", ms)
+
+    def get_retry_delay(self) -> int:
+        return int(self.get("auto/retry_delay", 30))
+
+    def set_retry_delay(self, seconds: int):
+        self.set("auto/retry_delay", max(1, seconds))
+
+    def get_answer_interval(self) -> int:
+        return int(self.get("auto/answer_interval", 0))
+
+    def set_answer_interval(self, seconds: int):
+        self.set("auto/answer_interval", max(0, seconds))

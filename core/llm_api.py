@@ -249,6 +249,8 @@ class LLMClient:
             raise LLMAPIError("连接失败，请检查 API 地址是否正确")
             
         if resp.status_code != 200:
+            if resp.status_code == 429:
+                raise LLMAPIError(f"429 限流：API 拒绝了请求（Too Many Requests）")
             raise LLMAPIError(f"API 返回错误 {resp.status_code}: {resp.text[:500]}")
 
         # 安全解析 JSON 响应体

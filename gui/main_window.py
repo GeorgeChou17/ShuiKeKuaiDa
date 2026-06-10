@@ -63,8 +63,12 @@ class QTextEditLogger(logging.Handler):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("水课快答 v1.2")
+        self.setWindowTitle("水课快答 v1.2.2")
         self.resize(1000, 720)
+        # 主界面字体
+        font = self.font()
+        font.setFamily("黑体")
+        self.setFont(font)
 
         # 核心对象
         self.config = ConfigManager()
@@ -94,7 +98,7 @@ class MainWindow(QMainWindow):
         self._setup_hotkeys()   # 注册全局快捷键
         self._init_floating_window()
 
-        logging.info("水课快答 v1.2 启动成功")
+        logging.info("水课快答 v1.2.2 启动成功")
 
     # ========================================================
     # UI 构建
@@ -223,22 +227,35 @@ class MainWindow(QMainWindow):
 
         # ---- 题型预设快速切换 ----
         grp_preset = QGroupBox("③ 题型预设（自动切换）")
-        pre_layout = QHBoxLayout(grp_preset)
-        pre_layout.addWidget(QLabel("当前预设："))
+        pre_layout = QVBoxLayout(grp_preset)
+        
+        # 预设类别选择
+        pre_row0 = QHBoxLayout()
+        pre_row0.addWidget(QLabel("预设类别："))
+        self.combo_category = QComboBox()
+        self._refresh_category_combo()
+        self.combo_category.currentTextChanged.connect(self._on_category_changed)
+        pre_row0.addWidget(self.combo_category)
+        pre_row0.addStretch()
+        pre_layout.addLayout(pre_row0)
+        
+        pre_row1 = QHBoxLayout()
+        pre_row1.addWidget(QLabel("当前预设："))
         self.combo_presets = QComboBox()
         self.combo_presets.addItem("（无预设）")
         self._refresh_presets_combo()
         self.combo_presets.currentTextChanged.connect(self._on_preset_selected)
-        pre_layout.addWidget(self.combo_presets)
+        pre_row1.addWidget(self.combo_presets)
         btn_save_preset = QPushButton("💾 保存当前为预设")
         btn_save_preset.clicked.connect(self._save_current_preset)
-        pre_layout.addWidget(btn_save_preset)
+        pre_row1.addWidget(btn_save_preset)
         btn_del_preset = QPushButton("🗑 删除预设")
         btn_del_preset.clicked.connect(self._delete_preset)
-        pre_layout.addWidget(btn_del_preset)
-        pre_layout.addStretch()
+        pre_row1.addWidget(btn_del_preset)
+        pre_row1.addStretch()
+        pre_layout.addLayout(pre_row1)
         # 自动切换
-        self.chk_auto_preset = QCheckBox("OCR 检测后自动切换预设")
+        self.chk_auto_preset = QCheckBox("OCR 检测后自动切换预设（仅在当前类别内搜索）")
         self.chk_auto_preset.setChecked(self.config.get_auto_switch_preset())
         self.chk_auto_preset.toggled.connect(
             lambda v: self.config.set_auto_switch_preset(v)
@@ -246,8 +263,100 @@ class MainWindow(QMainWindow):
         pre_layout.addWidget(self.chk_auto_preset)
         layout.addWidget(grp_preset)
 
+        # ---- 动态定位 ----
+        grp_dynamic = QGroupBox("③½ 选项定位模式")
+        dyn_layout = QVBoxLayout(grp_dynamic)
+        
+        dyn_row1 = QHBoxLayout()
+        self.chk_dynamic_click = QCheckBox("启用动态选项定位（OCR 实时识别按钮坐标，解决题干长度变化导致选项偏移）")
+        self.chk_dynamic_click.setChecked(self.config.get_dynamic_click())
+        self.chk_dynamic_click.toggled.connect(self._on_dynamic_click_toggled)
+        dyn_row1.addWidget(self.chk_dynamic_click)
+        self.chk_dynamic_fallback = QCheckBox("动态定位不足时回退到固定坐标")
+        self.chk_dynamic_fallback.setChecked(self.config.get_dynamic_fallback())
+        self.chk_dynamic_fallback.toggled.connect(self._on_dynamic_fallback_toggled)
+        dyn_row1.addWidget(self.chk_dynamic_fallback)
+        dyn_layout.addLayout(dyn_row1)
+        
+        dyn_row2 = QHBoxLayout()
+        self.btn_cal_btn_region = QPushButton("📷 框选选项按钮区域")
+        self.btn_cal_btn_region.clicked.connect(self._calibrate_button_region)
+        self.lbl_btn_region = QLabel("未框选")
+        self.lbl_btn_region.setStyleSheet("color:#888;")
+        dyn_row2.addWidget(self.btn_cal_btn_region)
+        dyn_row2.addWidget(self.lbl_btn_region)
+        dyn_row2.addStretch()
+        dyn_layout.addLayout(dyn_row2)
+        
+        # 题型区域框选（用于自动切换预设）
+        dyn_row3 = QHBoxLayout()
+        self.btn_cal_type_region = QPushButton("📷 框选题型文字区域")
+        self.btn_cal_type_region.clicked.connect(self._calibrate_type_region)
+        self.lbl_type_region = QLabel("未框选")
+        self.lbl_type_region.setStyleSheet("color:#888;")
+        dyn_row3.addWidget(self.btn_cal_type_region)
+        dyn_row3.addWidget(self.lbl_type_region)
+        dyn_row3.addStretch()
+        dyn_layout.addLayout(dyn_row3)
+        
+        # 坐标偏移校准
+        dyn_row4 = QHBoxLayout()
+        self.btn_cal_offset = QPushButton("🎯 校准坐标偏移")
+        self.btn_cal_offset.clicked.connect(self._calibrate_offset)
+        self.lbl_offset = QLabel("未校准")
+        self.lbl_offset.setStyleSheet("color:#888;")
+        dyn_row4.addWidget(self.btn_cal_offset)
+        dyn_row4.addWidget(self.lbl_offset)
+        dyn_row4.addStretch()
+        dyn_layout.addLayout(dyn_row4)
+        
+        layout.addWidget(grp_dynamic)
+
+        # ---- 答题自动停止 ----
+        grp_stop = QGroupBox("④ 答题自动停止")
+        stop_layout = QVBoxLayout(grp_stop)
+        
+        stop_row1 = QHBoxLayout()
+        stop_row1.addWidget(QLabel("停止模式："))
+        self.combo_stop_mode = QComboBox()
+        self.combo_stop_mode.addItems(["不自动停止", "OCR 识别题号（例如：1/100）", "手动设总题数"])
+        self.combo_stop_mode.setCurrentIndex(0)
+        self.combo_stop_mode.currentIndexChanged.connect(self._on_stop_mode_changed)
+        stop_row1.addWidget(self.combo_stop_mode)
+        stop_row1.addStretch()
+        stop_layout.addLayout(stop_row1)
+        
+        # OCR 模式：框选题号区域
+        stop_ocr_row = QHBoxLayout()
+        self.btn_cal_progress = QPushButton("📷 框选题号区域")
+        self.btn_cal_progress.clicked.connect(self._calibrate_progress_region)
+        self.lbl_progress_region = QLabel("未框选")
+        self.lbl_progress_region.setStyleSheet("color:#888;")
+        stop_ocr_row.addWidget(self.btn_cal_progress)
+        stop_ocr_row.addWidget(self.lbl_progress_region)
+        stop_ocr_row.addStretch()
+        stop_layout.addLayout(stop_ocr_row)
+        
+        # Count 模式：总题数
+        stop_count_row = QHBoxLayout()
+        stop_count_row.addWidget(QLabel("总题数："))
+        self.spin_total_questions = QSpinBox()
+        self.spin_total_questions.setRange(1, 9999)
+        self.spin_total_questions.setValue(0)
+        stop_count_row.addWidget(self.spin_total_questions)
+        stop_count_row.addWidget(QLabel("道"))
+        stop_count_row.addStretch()
+        stop_layout.addLayout(stop_count_row)
+        
+        # 进度显示
+        self.lbl_stop_progress = QLabel("")
+        self.lbl_stop_progress.setStyleSheet("color:#4CAF50; font-weight:bold;")
+        stop_layout.addWidget(self.lbl_stop_progress)
+        
+        layout.addWidget(grp_stop)
+
         # ---- 操作按钮 ----
-        grp_action = QGroupBox("④ 开始答题")
+        grp_action = QGroupBox("⑤ 开始答题")
         action_layout = QHBoxLayout(grp_action)
         self.btn_start = QPushButton("▶ 开始自动答题")
         self.btn_start.setStyleSheet(
@@ -349,6 +458,21 @@ class MainWindow(QMainWindow):
         self.spin_timeout.setSuffix(" 秒")
         layout.addRow("LLM 超时时间：", self.spin_timeout)
         
+        # 答题速度控制
+        layout.addRow(QLabel("—— 答题速度与限流控制 ——"))
+        
+        self.spin_answer_interval = QSpinBox()
+        self.spin_answer_interval.setRange(0, 120)
+        self.spin_answer_interval.setValue(0)
+        self.spin_answer_interval.setSuffix(" 秒")
+        layout.addRow("答题间隔（0=无限制）：", self.spin_answer_interval)
+        
+        self.spin_retry_delay = QSpinBox()
+        self.spin_retry_delay.setRange(5, 300)
+        self.spin_retry_delay.setValue(30)
+        self.spin_retry_delay.setSuffix(" 秒")
+        layout.addRow("429 限流后重试等待：", self.spin_retry_delay)
+        
         # ---- OCR 性能设置 ----
         layout.addRow(QLabel("—— OCR 性能设置 ——"))
         
@@ -399,6 +523,29 @@ class MainWindow(QMainWindow):
     def _build_presets_tab(self, tab: QWidget):
         layout = QVBoxLayout(tab)
         layout.addWidget(QLabel("已保存的题型预设："))
+        
+        hint = QLabel(
+            "💡 命名建议：为让自动切换更准确，请使用题型全称，如 A1型题、B型题、X型题（多选题）、判断题"
+        )
+        hint.setStyleSheet("color:#888; font-size:11px;")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        # 预设分类管理
+        cat_row = QHBoxLayout()
+        cat_row.addWidget(QLabel("分类："))
+        self.combo_preset_cat = QComboBox()
+        self._refresh_preset_cat_combo()
+        self.combo_preset_cat.currentTextChanged.connect(self._on_preset_cat_changed)
+        cat_row.addWidget(self.combo_preset_cat)
+        btn_add_cat = QPushButton("➕ 新建分类")
+        btn_add_cat.clicked.connect(self._add_preset_category)
+        cat_row.addWidget(btn_add_cat)
+        btn_del_cat = QPushButton("🗑 删除分类")
+        btn_del_cat.clicked.connect(self._delete_preset_category)
+        cat_row.addWidget(btn_del_cat)
+        cat_row.addStretch()
+        layout.addLayout(cat_row)
 
         self.list_presets = QListWidget()
         self._refresh_presets_list()
@@ -512,6 +659,9 @@ class MainWindow(QMainWindow):
         self.spin_temp.setValue(cfg.get("temperature", 0.0))
         self.spin_max_tokens.setValue(cfg.get("max_tokens", 2048))
         self.spin_timeout.setValue(cfg.get("timeout", 300))
+        # 答题速度
+        self.spin_answer_interval.setValue(self.config.get_answer_interval())
+        self.spin_retry_delay.setValue(self.config.get_retry_delay())
         # OCR 设置
         ocr_cfg = self.config.get_ocr_settings()
         self.chk_ocr_angle.setChecked(ocr_cfg.get("use_angle_cls", True))
@@ -541,6 +691,30 @@ class MainWindow(QMainWindow):
                 self.lbl_next.setText(f"已标定：({nxt['x']},{nxt['y']})")
             else:
                 self.lbl_next.setText(f"已标定：({nxt[0]},{nxt[1]})")
+        # 按钮区域
+        btn_region = self.config.get_button_region()
+        if btn_region:
+            self.lbl_btn_region.setText(
+                f"已框选：({btn_region['x']},{btn_region['y']}) {btn_region['w']}x{btn_region['h']}"
+            )
+        type_region = self.config.get_type_region()
+        if type_region:
+            self.lbl_type_region.setText(
+                f"已框选：({type_region['x']},{type_region['y']}) {type_region['w']}x{type_region['h']}"
+            )
+        offset = self.config.get_dynamic_offset()
+        if offset:
+            self.lbl_offset.setText(f"已校准：dx={offset['dx']}, dy={offset['dy']}")
+        # 自动停止
+        mode_map = {"none": 0, "ocr": 1, "count": 2}
+        self.combo_stop_mode.setCurrentIndex(mode_map.get(self.config.get_stop_mode(), 0))
+        self.spin_total_questions.setValue(self.config.get_total_questions())
+        prog_region = self.config.get_progress_region()
+        if prog_region:
+            self.lbl_progress_region.setText(
+                f"已框选：({prog_region['x']},{prog_region['y']}) {prog_region['w']}x{prog_region['h']}"
+            )
+        self._on_stop_mode_changed(self.combo_stop_mode.currentIndex())
 
     def _save_llm_config(self, show_message: bool = True):
         identity = self.edit_identity.toPlainText().strip()
@@ -556,6 +730,12 @@ class MainWindow(QMainWindow):
             identity=identity,
         )
         self.config.set_auto_delay(self.spin_delay.value())
+        self.config.set_answer_interval(self.spin_answer_interval.value())
+        self.config.set_retry_delay(self.spin_retry_delay.value())
+        # 自动停止
+        modes = ["none", "ocr", "count"]
+        self.config.set_stop_mode(modes[self.combo_stop_mode.currentIndex()])
+        self.config.set_total_questions(self.spin_total_questions.value())
         self.mouse_ctrl.set_click_delay(self.spin_delay.value())
         # 主观题关键词
         kws = [k.strip() for k in self.edit_subjective_kw.text().split(",") if k.strip()]
@@ -725,6 +905,7 @@ class MainWindow(QMainWindow):
     def _do_select_region(self):
         def on_region_selected(rect: QRect):
             self.config.set_screenshot_region(rect)
+            self.config._save_category_config(self.config.get_current_category())
             self.lbl_region.setText(f"已选择：{rect.x()},{rect.y()} {rect.width()}x{rect.height()}")
             logging.info(f"截图区域已选择：{rect}")
             self.show()
@@ -831,26 +1012,43 @@ class MainWindow(QMainWindow):
     # 预设管理
     # ========================================================
     def _refresh_presets_combo(self):
+        prev = self.combo_presets.currentText() if self.combo_presets.count() > 0 else ""
         self.combo_presets.blockSignals(True)
         self.combo_presets.clear()
         self.combo_presets.addItem("（无预设）")
-        for name in self.config.get_presets().keys():
-            self.combo_presets.addItem(name)
+        cat = self.config.get_current_category()
+        for name in self.config.get_presets(cat).keys():
+            if name != "（无预设）":
+                self.combo_presets.addItem(name)
+        if prev and prev != "（无预设）":
+            idx = self.combo_presets.findText(prev)
+            if idx >= 0:
+                self.combo_presets.setCurrentIndex(idx)
         self.combo_presets.blockSignals(False)
 
     def _refresh_presets_list(self):
         self.list_presets.clear()
-        for name in self.config.get_presets().keys():
-            self.list_presets.addItem(name)
+        cat = self.config.get_current_category()
+        for name in self.config.get_presets(cat).keys():
+            if name != "（无预设）":
+                self.list_presets.addItem(name)
 
     def _on_preset_selected(self, name: str):
+        # 切走时自动保存当前坐标到上一个预设
+        if hasattr(self, '_active_preset_name') and self._active_preset_name and self._active_preset_name not in (name, "（无预设）"):
+            self.config.save_preset(self._active_preset_name,
+                self.config.get_option_positions(),
+                self.config.get_next_button_pos())
+            logging.info(f"已自动保存预设：{self._active_preset_name}")
+        self._active_preset_name = name if name != "（无预设）" else None
+        
         if name == "（无预设）" or not name:
+            logging.info("已切换至（无预设）")
             return
+        # 加载目标预设
         presets = self.config.get_presets()
         if name in presets:
-            # 直接加载预设
             self.config.load_preset(name)
-            self._refresh_options_label()
             nb = self.config.get_next_button_pos()
             if nb:
                 self.lbl_next.setText(f"已标定：({nb[0]},{nb[1]})")
@@ -862,6 +1060,7 @@ class MainWindow(QMainWindow):
                 self.spin_opt_count.setValue(opt_count)
                 self.spin_opt_count.blockSignals(False)
                 self._on_option_count_changed(opt_count)
+            self._refresh_options_label()  # 放在最后，不被 _on_option_count_changed 覆盖
             logging.info(f"已切换预设：{name}（选项数={opt_count}）")
             # 同步更新预设详情
             detail = f"预设名：{name}\n"
@@ -869,6 +1068,317 @@ class MainWindow(QMainWindow):
             nb = p.get('next_button')
             detail += f"下一题坐标：{nb}\n"
             self.txt_preset_detail.setText(detail)
+
+    def _on_dynamic_click_toggled(self, enabled: bool):
+        self.config.set_dynamic_click(enabled)
+        logging.info(f"动态选项定位：{'启用' if enabled else '禁用'}")
+
+    def _on_dynamic_fallback_toggled(self, enabled: bool):
+        self.config.set_dynamic_fallback(enabled)
+
+    # ---- 预设分类管理（Tab内） ----
+    def _refresh_preset_cat_combo(self):
+        self.combo_preset_cat.blockSignals(True)
+        self.combo_preset_cat.clear()
+        cats = self.config.get_categories()
+        if not cats:
+            cats = ["默认"]
+        self.combo_preset_cat.addItems(cats)
+        current = self.config.get_current_category()
+        if current in cats:
+            self.combo_preset_cat.setCurrentText(current)
+        self.combo_preset_cat.blockSignals(False)
+
+    def _on_preset_cat_changed(self, name: str):
+        if not name:
+            return
+        self.config.set_current_category(name)
+        self._refresh_presets_list()
+        self._refresh_category_combo()
+
+    def _add_preset_category(self):
+        name, ok = QInputDialog.getText(self, "新建分类", "分类名（如 人卫、超星、智慧树）：")
+        if not ok or not name.strip():
+            return
+        name = name.strip()
+        if name in self.config.get_categories():
+            QMessageBox.warning(self, "重复", f"分类「{name}」已存在")
+            return
+        self.config.add_category(name)
+        self.config.set_current_category(name)
+        self._refresh_preset_cat_combo()
+        self._refresh_presets_list()
+        self._refresh_category_combo()
+
+    def _delete_preset_category(self):
+        name = self.combo_preset_cat.currentText()
+        if not name or name == "默认":
+            QMessageBox.warning(self, "提示", "不能删除「默认」分类")
+            return
+        presets = self.config.get_presets(name)
+        if presets:
+            r = QMessageBox.question(self, "确认", f"分类「{name}」下有 {len(presets)} 个预设，删除分类会同时删除所有预设。确认？")
+            if r != QMessageBox.Yes:
+                return
+        self.config.delete_category(name)
+        self.config.set_current_category("默认")
+        self._refresh_preset_cat_combo()
+        self._refresh_presets_list()
+        self._refresh_category_combo()
+
+    # ---- 预设分类 ----
+    def _refresh_category_combo(self):
+        self.combo_category.blockSignals(True)
+        self.combo_category.clear()
+        cats = self.config.get_categories()
+        if not cats:
+            cats = ["默认"]
+        self.combo_category.addItems(cats)
+        current = self.config.get_current_category()
+        if current in cats:
+            self.combo_category.setCurrentText(current)
+        self.combo_category.blockSignals(False)
+
+    def _on_category_changed(self, name: str):
+        if not name:
+            return
+        # 保存当前分类的配置
+        self.config._save_category_config(self.config.get_current_category())
+        self.config.set_current_category(name)
+        self._refresh_presets_combo()
+        self._refresh_ui_from_category()
+        logging.info(f"已切换到预设类别：{name}")
+    
+    def _refresh_ui_from_category(self):
+        """更新UI以反映当前分类的配置"""
+        rect = self.config.get_screenshot_region()
+        if rect:
+            self.lbl_region.setText(f"已选择：{rect.x()},{rect.y()} {rect.width()}x{rect.height()}")
+        btn_region = self.config.get_button_region()
+        if btn_region:
+            self.lbl_btn_region.setText(f"已框选：({btn_region['x']},{btn_region['y']}) {btn_region['w']}x{btn_region['h']}")
+        else:
+            self.lbl_btn_region.setText("未框选")
+        type_region = self.config.get_type_region()
+        if type_region:
+            self.lbl_type_region.setText(f"已框选：({type_region['x']},{type_region['y']}) {type_region['w']}x{type_region['h']}")
+        else:
+            self.lbl_type_region.setText("未框选")
+        offset = self.config.get_dynamic_offset()
+        if offset:
+            self.lbl_offset.setText(f"已校准：dx={offset['dx']}, dy={offset['dy']}")
+        else:
+            self.lbl_offset.setText("未校准")
+
+    # ---- 答题自动停止 ----
+    def _on_stop_mode_changed(self, idx: int):
+        modes = ["none", "ocr", "count"]
+        self.config.set_stop_mode(modes[idx])
+        self.btn_cal_progress.setVisible(idx == 1)
+        self.lbl_progress_region.setVisible(idx == 1)
+        self.spin_total_questions.setVisible(idx == 2)
+
+    def _calibrate_progress_region(self):
+        self.hide()
+        QApplication.processEvents()
+        QTimer.singleShot(300, self._do_calibrate_progress_region)
+
+    def _do_calibrate_progress_region(self):
+        from core.screenshot import RegionSelector
+        def on_region(rect):
+            region = {"x": rect.x(), "y": rect.y(), "w": rect.width(), "h": rect.height()}
+            self.config.set_progress_region(region)
+            self.lbl_progress_region.setText(
+                f"已框选：({region['x']},{region['y']}) {region['w']}x{region['h']}"
+            )
+            self.show()
+        self._selector = RegionSelector()
+        self._selector.region_selected.connect(on_region)
+        self._selector.showFullScreen()
+
+    def _calibrate_button_region(self):
+        """框选选项按钮所在的大致区域（用于空间过滤）"""
+        self.hide()
+        QApplication.processEvents()
+        QTimer.singleShot(300, self._do_calibrate_button_region)
+
+    def _do_calibrate_button_region(self):
+        from core.screenshot import RegionSelector
+        def on_region(rect: QRect):
+            region = {"x": rect.x(), "y": rect.y(), "w": rect.width(), "h": rect.height()}
+            self.config.set_button_region(region)
+            self.config._save_category_config(self.config.get_current_category())
+            self.lbl_btn_region.setText(f"已框选：({region['x']},{region['y']}) {region['w']}x{region['h']}")
+            logging.info(f"选项按钮区域：{region}")
+            self.show()
+        self._selector = RegionSelector()
+        self._selector.region_selected.connect(on_region)
+        self._selector.showFullScreen()
+
+    def _calibrate_type_region(self):
+        """框选题型文字所在区域（如 A1型题 / X型题 显示位置）"""
+        self.hide(); QApplication.processEvents()
+        QTimer.singleShot(300, self._do_calibrate_type_region)
+
+    def _do_calibrate_type_region(self):
+        from core.screenshot import RegionSelector
+        def on_region(rect: QRect):
+            region = {"x": rect.x(), "y": rect.y(), "w": rect.width(), "h": rect.height()}
+            self.config.set_type_region(region)
+            self.config._save_category_config(self.config.get_current_category())
+            self.lbl_type_region.setText(f"已框选：({region['x']},{region['y']}) {region['w']}x{region['h']}")
+            logging.info(f"题型文字区域：{region}"); self.show()
+        self._selector = RegionSelector()
+        self._selector.region_selected.connect(on_region)
+        self._selector.showFullScreen()
+
+    def _ocr_type_region_from_lines(self, ocr_lines: list, scale_factor: float, offset_x: int, offset_y: int) -> str | None:
+        """从主 OCR 文字块中提取题型区域内的文字（避免二次 OCR）"""
+        region = self.config.get_type_region()
+        if not region or not ocr_lines:
+            return None
+        try:
+            rx = region["x"] - offset_x
+            ry = region["y"] - offset_y
+            rw, rh = region["w"], region["h"]
+            texts = []
+            for line in ocr_lines:
+                box = line.get("box", [])
+                if not box or len(box) < 4:
+                    continue
+                xs = [p[0] * scale_factor for p in box if len(p) >= 2]
+                ys = [p[1] * scale_factor for p in box if len(p) >= 2]
+                if not xs or not ys:
+                    continue
+                cx = sum(xs) / len(xs)
+                cy = sum(ys) / len(ys)
+                if rx <= cx <= rx + rw and ry <= cy <= ry + rh:
+                    texts.append(line.get("text", ""))
+            if texts:
+                text = self._fix_ocr_type_errors(" ".join(texts))
+                logging.info(f"题型区域（从OCR提取）：{text}")
+                return text
+        except Exception as e:
+            logging.warning(f"题型区域提取失败：{e}")
+        return None
+
+    def _check_ocr_stop_from_lines(self, ocr_lines: list, scale_factor: float, offset_x: int, offset_y: int) -> bool:
+        """从主 OCR 文字块中提取题号区域文字并检查是否最后一题"""
+        if getattr(self, '_completion_dialog_shown', False):
+            return False  # 用户已选择继续，不再重复弹窗
+        region = self.config.get_progress_region()
+        if not region or not ocr_lines:
+            return False
+        try:
+            rx = region["x"] - offset_x
+            ry = region["y"] - offset_y
+            rw, rh = region["w"], region["h"]
+            texts = []
+            for line in ocr_lines:
+                box = line.get("box", [])
+                if not box or len(box) < 4:
+                    continue
+                xs = [p[0] * scale_factor for p in box if len(p) >= 2]
+                ys = [p[1] * scale_factor for p in box if len(p) >= 2]
+                if not xs or not ys:
+                    continue
+                cx = sum(xs) / len(xs)
+                cy = sum(ys) / len(ys)
+                if rx <= cx <= rx + rw and ry <= cy <= ry + rh:
+                    texts.append(line.get("text", ""))
+            if texts:
+                progress_text = " ".join(texts)
+                current, total = self._parse_progress(progress_text)
+                if current and total and current >= total:
+                    self._question_counter = total
+                    self.lbl_stop_progress.setText(f"已答：{current} / {total}")
+                    return True
+                if current and total:
+                    self.lbl_stop_progress.setText(f"进度：{current} / {total}")
+        except Exception as e:
+            logging.warning(f"题号识别失败：{e}")
+        return False
+        region = self.config.get_type_region()
+        if not region or not self._current_image:
+            return None
+        try:
+            from PIL import Image
+            r = region
+            cropped = self._current_image.crop((r["x"], r["y"], r["x"]+r["w"], r["y"]+r["h"]))
+            from core.ocr_module import recognize_image
+            result = recognize_image(img=cropped, use_angle_cls=False, max_img_side=0)
+            if result["success"] and result["text"].strip():
+                text = result["text"].strip().replace("\n", " ")
+                text = self._fix_ocr_type_errors(text)
+                logging.info(f"题型区域 OCR：{text}")
+                return text
+        except Exception as e:
+            logging.warning(f"题型区域 OCR 失败：{e}")
+        return None
+
+    def _calibrate_offset(self):
+        """校准：对比混合定位(固定X+OCR_Y)与手动按钮点击"""
+        count = self.spin_opt_count.value()
+        if count < 1:
+            QMessageBox.warning(self, "提示", "请先设置选项数量")
+            return
+        if not hasattr(self, '_ocr_content_y') or not self._ocr_content_y:
+            QMessageBox.warning(self, "提示", "请先跑一题让OCR识别选项位置")
+            return
+        r = QMessageBox.question(self, "坐标校准",
+            f"将对比混合定位（OCR_Y={list(self._ocr_content_y.values())[:3]}...）与手动点击",
+            QMessageBox.Ok | QMessageBox.Cancel)
+        if r != QMessageBox.Ok:
+            return
+        names = [chr(ord("A") + i) for i in range(count)]
+        self._calib_offset_clicks = []
+        self._calibrator = PositionCalibrator(max_clicks=count, tip_text=f"依次点击: {', '.join(names)}")
+        self._calibrator.position_clicked.connect(lambda pos: self._calib_offset_clicks.append((pos.x(),pos.y())))
+        self._calibrator.finished.connect(self._on_offset_calib_finished)
+        self.hide(); QApplication.processEvents()
+        self._calibrator.showFullScreen()
+
+    def _on_offset_calib_finished(self):
+        self.show()
+        if len(self._calib_offset_clicks) < self.spin_opt_count.value():
+            return
+        dx = dy = cnt = 0
+        names = [chr(ord("A") + i) for i in range(self.spin_opt_count.value())]
+        for i, (mx, my) in enumerate(self._calib_offset_clicks):
+            name = names[i]
+            if hasattr(self, '_ocr_content_y') and name in self._ocr_content_y:
+                # 混合定位：固定X + OCR_Y
+                fixed = self.config.get_option_positions()
+                fx = int(fixed[i].get("x", 0)) if i < len(fixed) else 0
+                fy = int(self._ocr_content_y[name])
+                dx += mx - fx; dy += my - fy; cnt += 1
+                logging.debug(f"校准[{name}]: 点击=({mx},{my}) 混合=({fx},{fy}) 差=({mx-fx},{my-fy})")
+        if cnt > 0:
+            offset = {"dx": int(dx/cnt), "dy": int(dy/cnt)}
+            self.config.set_dynamic_offset(offset)
+            self.config._save_category_config(self.config.get_current_category())
+            self.lbl_offset.setText(f"已校准：dx={offset['dx']}, dy={offset['dy']}")
+            logging.info(f"坐标偏移校准（混合模式）：{offset}")
+
+    @staticmethod
+    def _fix_ocr_type_errors(text: str) -> str:
+        """修复 OCR 对题型文字的常见识别错误"""
+        import re
+        t = text.strip()
+        # 大小写统一
+        t = t.upper()
+        # 常见 OCR 错字修正（罗马数字/字母混淆）
+        t = re.sub(r'A[IⅠLl1一]', 'A1', t)  # AI/AⅠ/Al/A一 → A1
+        t = re.sub(r'B[IⅠLl1一]', 'B1', t)  # BI → B1
+        t = re.sub(r'[×✕xX]', 'X', t)        # × → X
+        t = re.sub(r'[Oo0]', '0', t)          # O → 0 (用于题号)
+        # 中文错字
+        t = re.sub(r'[夕タ多]', '多', t)       # 夕 → 多
+        t = re.sub(r'逸', '选', t)             # 逸 → 选
+        t = re.sub(r'单[题逸]', '单选', t)     # 单逸 → 单选
+        t = re.sub(r'判[斯断]', '判断', t)     # 判斯 → 判断
+        t = re.sub(r'填[空控]', '填空', t)     # 填空 → 填空
+        return t
 
     def _on_preset_item_changed(self, current, previous):
         if not current:
@@ -886,15 +1396,31 @@ class MainWindow(QMainWindow):
             self.txt_preset_detail.setText(detail)
 
     def _save_current_preset(self):
-        name, ok = QInputDialog.getText(self, "保存预设", "请输入预设名称：")
-        if not ok or not name.strip():
-            return
-        name = name.strip()
-        options = self.config.get_option_positions()
+        current = self.combo_presets.currentText()
+        if current and current != "（无预设）":
+            # 已有预设选中 → 询问是否更新
+            r = QMessageBox.question(self, "更新预设",
+                f"预设「{current}」已存在，是否覆盖更新？",
+                QMessageBox.Yes | QMessageBox.No)
+            if r != QMessageBox.Yes:
+                return
+            name = current
+        else:
+            name, ok = QInputDialog.getText(self, "保存预设", "请输入预设名称：")
+            if not ok or not name.strip():
+                return
+            name = name.strip()
+        # 快照当前所有配置
+        options = list(self.config.get_option_positions())
         next_pos = self.config.get_next_button_pos()
-        self.config.save_preset(name, options, next_pos)
+        button_region = self.config.get_button_region()
+        type_region = self.config.get_type_region()
+        opt_count = self.spin_opt_count.value()
+        self.config.save_preset(name, options, next_pos, button_region, type_region)
         self._refresh_presets_combo()
         self._refresh_presets_list()
+        # 确保选项数量不变
+        self.spin_opt_count.setValue(opt_count)
         QMessageBox.information(self, "成功", f"预设「{name}」已保存！")
 
     def _load_selected_preset(self):
@@ -1042,6 +1568,8 @@ class MainWindow(QMainWindow):
             return
         self._running = True
         self._paused = False
+        self._question_counter = 0
+        self._last_ocr_texts = []
         self.btn_start.setEnabled(False)
         self.btn_pause.setEnabled(True)
         self.btn_stop.setEnabled(True)
@@ -1049,6 +1577,9 @@ class MainWindow(QMainWindow):
         self.lbl_status.setText("正在运行...")
         self.lbl_status.setStyleSheet("color:#4CAF50; font-size:12px;")
         logging.info("=== 开始自动答题 ===")
+        # 将浮动窗口移到主窗口所在屏幕的右上角
+        if self.floating_win and self.config.get_floating_window_enabled():
+            self.floating_win.reposition_to_widget(self)
         self._step_screenshot()
 
     def _toggle_pause(self):
@@ -1138,24 +1669,107 @@ class MainWindow(QMainWindow):
         self._ocr_worker.error.connect(self._on_ocr_error)
         self._ocr_worker.start()
 
-    def _on_ocr_finished(self, raw_text: str, parsed: dict):
+    def _on_ocr_finished(self, raw_text: str, parsed: dict, ocr_lines: list = None, scale_factor: float = 1.0):
         self._current_ocr_text = raw_text
         qtype = parsed.get("question_type", "未知")
         info = f"题型：{qtype}\n题干：{parsed.get('stem','')[:100]}...\n选项数：{len(parsed.get('options',[]))}"
         self.txt_question_info.setText(info)
         logging.info(f"OCR 完成：{qtype}")
+        
+        rect = self.config.get_screenshot_region()
+        offset_x = rect.x() if rect else 0
+        offset_y = rect.y() if rect else 0
+        
+        # OCR 题号识别（从主 OCR 结果中提取，避免二次 OCR）
+        if self.config.get_stop_mode() == "ocr":
+            if self._check_ocr_stop_from_lines(ocr_lines, scale_factor, offset_x, offset_y):
+                self._show_completion_dialog()
+                return
+        
+        # 计数模式去重
+        if self.config.get_stop_mode() == "count" and self._is_duplicate_question(raw_text):
+            logging.info("检测到重复题目（LLM 重扫），跳过计数")
+            QTimer.singleShot(1000, self._step_screenshot)
+            return
+        
+        # 动态选项定位：OCR 文字块坐标
+        self._dynamic_options = {}
+        if self.config.get_dynamic_click() and ocr_lines:
+            opt_names = [chr(ord("A") + i) for i in range(self.spin_opt_count.value())]
+            
+            # 步骤1：构建 OCR 文字块列表（过滤掉太短/太偏的文字）
+            ocr_blocks = []
+            for line in ocr_lines:
+                text = line.get("text", "").strip()
+                box = line.get("box", [])
+                if not text or not box or len(box) < 4:
+                    continue
+                xs = [p[0] * scale_factor for p in box if len(p) >= 2]
+                ys = [p[1] * scale_factor for p in box if len(p) >= 2]
+                if not xs or not ys:
+                    continue
+                ocr_blocks.append({"text": text, "cx": sum(xs)/len(xs), "cy": sum(ys)/len(ys)})
+            
+            # 步骤2：找按钮标签（如单独的 "A"）
+            from core.ocr_module import extract_option_positions
+            dynamic = extract_option_positions(ocr_lines, opt_names, scale_factor, None)
+            
+            # 步骤3：在按钮下方按Y排序取内容文字块，分配给各选项
+            content_pos = {}
+            if any(dynamic.get(n) for n in opt_names):
+                # 取按钮A的Y作为"选项区域"起始
+                btn_a = dynamic.get("A")
+                if btn_a:
+                    # 收集按钮Y以下的文字块（内容候选）
+                    candidates = sorted([b for b in ocr_blocks if b["cy"] >= btn_a[1] - 5 and len(b["text"]) >= 2], key=lambda b: b["cy"])
+                    # 为每个选项分配内容：跳过按钮标签和题目编号
+                    assigned = 0
+                    for block in candidates:
+                        text = block["text"]
+                        # 跳过独立字母（按钮标签本身）
+                        if len(text) == 1 and text.isascii():
+                            continue
+                        # 跳过题目编号行（如 "1.下面哪一项..."）
+                        if text[0].isdigit() and any(kw in text for kw in ["下面", "以下", "正确", "错误", "哪一", "分）"]):
+                            continue
+                        if assigned < len(opt_names) and text not in [content_pos.get(n, ("",""))[0] for n in content_pos]:
+                            name = opt_names[assigned]
+                            content_pos[name] = (block["cx"], block["cy"])
+                            assigned += 1
+            
+            # 步骤4：混合定位 — OCR提供Y（行），固定坐标提供X（列）
+            self._ocr_content_y = {}
+            fixed = {o["name"]: o for o in self.config.get_option_positions()}
+            screen_positions = {}
+            for name in opt_names:
+                if name in content_pos:
+                    cx_ocr, cy_ocr = content_pos[name]
+                    screen_y = int(cy_ocr + offset_y)
+                    self._ocr_content_y[name] = screen_y
+                    fx = int(fixed.get(name, {}).get("x", 0)) if name in fixed else int(cx_ocr + offset_x)
+                    screen_positions[name] = (fx, screen_y)
+                    logging.debug(f"混合定位{name}：固定X={fx}, OCR_Y={screen_y}")
+                elif dynamic.get(name):
+                    screen_positions[name] = (int(dynamic[name][0] + offset_x), int(dynamic[name][1] + offset_y))
+                elif name in fixed:
+                    screen_positions[name] = (int(fixed[name].get("x",0)), int(fixed[name].get("y",0)))
+            self._dynamic_options = screen_positions
+            found = sum(1 for v in screen_positions.values() if v is not None)
+            logging.info(f"动态定位：找到 {found}/{len(opt_names)} 个选项坐标")
+        
         # 主观题检测
         if self._check_subjective(raw_text):
             logging.info("OCR 检测到主观题关键词！")
             self._handle_subjective_question(raw_text, self._current_image)
-            # 主观题不自动点击，等待用户查看浮动窗口答案
-            # 是否继续下一题由用户决定，或自动下一题
-            # 这里选择：显示答案后自动继续下一题（可配置）
             QTimer.singleShot(2000, lambda: self._step_click_next_only())
             return
-        # 自动切换预设（若开启）
+        # 自动切换预设（从主 OCR 结果中提取题型文字）
         if self.config.get_auto_switch_preset():
-            self._auto_switch_preset_by_type(qtype)
+            type_text = self._ocr_type_region_from_lines(ocr_lines, scale_factor, offset_x, offset_y)
+            if type_text:
+                self._auto_switch_preset_by_type(type_text)
+            else:
+                self._auto_switch_preset_by_type(qtype)
         self._step_llm_ocr(raw_text)
 
     def _on_ocr_error(self, msg: str):
@@ -1164,22 +1778,77 @@ class MainWindow(QMainWindow):
         self._finish_flow()
 
     def _auto_switch_preset_by_type(self, qtype: str):
-        """根据题型自动切换预设"""
-        presets = self.config.get_presets()
-        # 简单匹配：预设名包含题型关键字
-        for name, p in presets.items():
-            if qtype in name or name in qtype:
-                logging.info(f"自动切换预设：{name}")
-                self.config.load_preset(name)
-                self._refresh_options_label()
-                nb = self.config.get_next_button_pos()
-                if nb:
-                    self.lbl_next.setText(f"已标定：({nb[0]},{nb[1]})")
-                break
+        """根据题型自动切换预设（仅在当前类别内搜索）"""
+        category = self.config.get_current_category()
+        presets = self.config.get_presets(category)
+        if not presets or not qtype:
+            return
+        
+        # 规范化题型文本：去掉"型"、"题"、"题型"等后缀，保留核心标识
+        def _normalize(s: str) -> str:
+            s = self._fix_ocr_type_errors(s)
+            import re
+            s = s.strip().lower()
+            s = re.sub(r'[型题]+$', '', s)
+            s = re.sub(r'题型$', '', s)
+            s = s.strip()
+            return s
+        
+        norm_qtype = _normalize(qtype)
+        logger = logging.getLogger(__name__)
+        
+        # 构建预设名称的规范化映射
+        preset_norm = {_normalize(name): name for name in presets.keys()}
+        
+        best_match = None
+        
+        # 策略1：精确匹配规范化后的名称
+        if norm_qtype in preset_norm:
+            best_match = preset_norm[norm_qtype]
+        else:
+            # 策略2：qtype 包含预设名（如"a1型题"匹配"a1"）
+            for norm_name, orig_name in preset_norm.items():
+                if norm_name and (norm_name in norm_qtype or norm_qtype in norm_name):
+                    best_match = orig_name
+                    break
+        
+        # 策略3：对于无法精确匹配的，按大类别匹配
+        if not best_match:
+            # 多选题大类
+            if any(k in norm_qtype for k in ('多选', 'x', 'x型')):
+                multi_keys = [k for k in preset_norm if any(x in k for x in ('多选', 'x', 'x型'))]
+                if multi_keys:
+                    best_match = preset_norm[multi_keys[0]]
+            # 单选题大类（A1-A4, B1-B2）
+            elif any(k in norm_qtype for k in ('单选', 'a1', 'a2', 'a3', 'a4', 'b1', 'b2', 'a型', 'b型')):
+                single_keys = [k for k in preset_norm if any(x in k for x in ('单选', 'a1', 'a2', 'a3', 'a4', 'b1', 'b2', 'a型', 'b型'))]
+                if single_keys:
+                    best_match = preset_norm[single_keys[0]]
+        
+        if best_match:
+            logging.info(f"自动切换预设：{best_match}（题型={qtype}, 规范化={norm_qtype}）")
+            self.config.load_preset(best_match, keep_positions=True)
+            self._refresh_options_label()
+            nb = self.config.get_next_button_pos()
+            if nb:
+                self.lbl_next.setText(f"已标定：({nb[0]},{nb[1]})")
 
     def _step_llm_ocr(self, ocr_text: str):
         logging.info("【步骤3】调用 LLM（OCR 模式）...")
         self.lbl_status.setText("LLM 思考中...")
+        
+        # 答题速度限制：等待间隔后发送请求
+        interval = self.config.get_answer_interval()
+        if interval > 0 and self._running:
+            logging.info(f"等待答题间隔 {interval} 秒...")
+            self.lbl_status.setText(f"等待 {interval} 秒后请求 LLM...")
+            QTimer.singleShot(interval * 1000, lambda: self._do_step_llm_ocr(ocr_text))
+            return
+        self._do_step_llm_ocr(ocr_text)
+    
+    def _do_step_llm_ocr(self, ocr_text: str):
+        if not self._running:
+            return
         is_sub = self._check_subjective(ocr_text)
         client = self._build_llm_client()
         messages = client.build_ocr_messages(ocr_text, is_subjective=is_sub)
@@ -1199,6 +1868,18 @@ class MainWindow(QMainWindow):
     def _step_llm_multimodal(self):
         logging.info("【步骤3】调用 LLM（多模态模式）...")
         self.lbl_status.setText("LLM 识别题目中...")
+        
+        interval = self.config.get_answer_interval()
+        if interval > 0 and self._running:
+            logging.info(f"等待答题间隔 {interval} 秒...")
+            self.lbl_status.setText(f"等待 {interval} 秒后请求 LLM...")
+            QTimer.singleShot(interval * 1000, self._do_step_llm_multimodal)
+            return
+        self._do_step_llm_multimodal()
+    
+    def _do_step_llm_multimodal(self):
+        if not self._running:
+            return
         client = self._build_llm_client()
         messages = client.build_multimodal_messages(self._current_image_base64, is_subjective=False)
         self._llm_worker = LLMWorker(client, messages)
@@ -1212,11 +1893,9 @@ class MainWindow(QMainWindow):
         self._llm_worker.start()
 
     def _on_llm_finished(self, result: dict):
+        if not self._running:  # 用户已停止，忽略回传
+            return
         answer = result.get("answer", "")
-        analysis = result.get("analysis", "")
-        qtype = result.get("question_type", "未知")
-        confidence = result.get("confidence", 0.0)
-        thinking = result.get("thinking", "")
 
         info = f"题型：{qtype}\n分析：{analysis}\n答案：{answer}\n置信度：{confidence:.0%}"
         self.txt_question_info.setText(info)
@@ -1235,7 +1914,37 @@ class MainWindow(QMainWindow):
 
     def _on_llm_error(self, msg: str):
         logging.error(f"LLM 调用失败：{msg}")
-        if self._running:
+        if not self._running:
+            QMessageBox.warning(self, "LLM 失败", msg)
+            self._finish_flow()
+            return
+        
+        is_429 = "429" in msg or "限流" in msg or "Too Many Requests" in msg
+        retry_delay = self.config.get_retry_delay()
+        
+        if is_429:
+            # 429 限流：弹窗告知 + 自动重试
+            r = QMessageBox.question(
+                self, "API 限流（429）",
+                f"由于 API 的多并发限制，导致模型拒绝工作。\n\n"
+                f"程序将在 {retry_delay} 秒后自动重试。\n"
+                f"您也可以：\n"
+                f"• 点击「是」立即重试\n"
+                f"• 点击「否」取消答题",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes
+            )
+            if r == QMessageBox.Yes:
+                logging.info(f"用户选择立即重试（429）")
+                QTimer.singleShot(1000, lambda: self._retry_current_question())
+            elif r == QMessageBox.No:
+                logging.info(f"用户取消答题（429）")
+                self._finish_flow()
+            else:
+                # 用户关闭了弹窗（未选择），按自动重试处理
+                logging.info(f"429 自动重试将在 {retry_delay} 秒后执行")
+                QTimer.singleShot(retry_delay * 1000, lambda: self._retry_current_question() if self._running else None)
+        else:
+            # 非 429 错误：保留原有重试逻辑
             r = QMessageBox.question(
                 self, "LLM 出错",
                 f"LLM 调用失败：{msg}\n\n是否重试当前题目？\n（选择「否」将停止答题）",
@@ -1243,13 +1952,9 @@ class MainWindow(QMainWindow):
             )
             if r == QMessageBox.Yes:
                 logging.info("用户选择重试...")
-                # 重新发起当前题目的 LLM 调用
                 QTimer.singleShot(1000, lambda: self._retry_current_question())
             else:
                 self._finish_flow()
-        else:
-            QMessageBox.warning(self, "LLM 失败", msg)
-            self._finish_flow()
 
     def _retry_current_question(self):
         """重试当前题目（LLM 调用失败后）"""
@@ -1260,14 +1965,67 @@ class MainWindow(QMainWindow):
 
     def _step_click_answer(self, answer_str: str):
         logging.info(f"【步骤4】执行答题动作，答案：{answer_str}")
-        # 空答案保护：LLM 返回空答案时，不执行点击，直接继续下一题
         if not answer_str or not answer_str.strip():
             logging.warning("LLM 返回空答案，跳过当前题目")
             QTimer.singleShot(500, self._step_screenshot)
             return
         
         self.lbl_status.setText("执行答题动作...")
-        option_positions = self.config.get_option_positions()
+        
+        opt_count = self.spin_opt_count.value()
+        dynamic_found = len(self._dynamic_options) if hasattr(self, '_dynamic_options') else 0
+        
+        if self.config.get_dynamic_click() and dynamic_found >= max(1, opt_count * 0.6):
+            # 使用动态坐标，缺失的用固定坐标补
+            option_positions = []
+            all_names = [chr(ord("A") + i) for i in range(opt_count)]
+            fixed_positions = {opt["name"]: opt for opt in self.config.get_option_positions()}
+            cal = self.config.get_dynamic_offset()
+            for name in all_names:
+                if name in self._dynamic_options and self._dynamic_options[name]:
+                    option_positions.append({"name": name, "x": self._dynamic_options[name][0], "y": self._dynamic_options[name][1]})
+                elif name in fixed_positions:
+                    opt = fixed_positions[name]
+                    x, y = int(opt.get("x",0)), int(opt.get("y",0))
+                    if cal: x += cal.get("dx", 0); y += cal.get("dy", 0)
+                    option_positions.append({"name": name, "x": x, "y": y})
+                else:
+                    option_positions.append({"name": name, "x": 0, "y": 0})  # 兜底
+            logging.info(f"使用动态坐标：{dynamic_found}/{opt_count} 个选项")
+        elif self.config.get_dynamic_click():
+            # 动态坐标不足，根据回退开关决定
+            if self.config.get_dynamic_fallback():
+                option_positions = list(self.config.get_option_positions())
+                cal = self.config.get_dynamic_offset()
+                if cal:
+                    for opt in option_positions:
+                        opt["x"] = int(opt["x"]) + cal.get("dx", 0)
+                        opt["y"] = int(opt["y"]) + cal.get("dy", 0)
+                    logging.info(f"动态坐标不足（{dynamic_found}/{opt_count}），回退固定坐标+校准")
+                else:
+                    logging.info(f"动态坐标不足（{dynamic_found}/{opt_count}），回退固定坐标")
+            else:
+                QMessageBox.warning(self, "动态定位失败",
+                    f"只找到 {dynamic_found}/{opt_count} 个选项坐标，动态定位不完整。\n"
+                    "已停止答题。\n"
+                    "提示：可勾选「动态定位不足时回退到固定坐标」后重试。")
+                self._finish_flow()
+                return
+        else:
+            # 动态坐标不够 → 回退固定坐标（可叠加校准偏移）
+            option_positions = list(self.config.get_option_positions())
+            if self.config.get_dynamic_click():
+                cal = self.config.get_dynamic_offset()
+                if cal:
+                    for opt in option_positions:
+                        opt["x"] = int(opt["x"]) + cal.get("dx", 0)
+                        opt["y"] = int(opt["y"]) + cal.get("dy", 0)
+                    logging.info(f"使用固定坐标+校准偏移({cal['dx']},{cal['dy']})：{len(option_positions)} 个选项")
+                else:
+                    logging.info(f"动态坐标不足（{dynamic_found}/{opt_count}），回退固定坐标（无校准）")
+            else:
+                logging.info(f"使用固定坐标：{len(option_positions)} 个选项")
+        
         next_pos = self.config.get_next_button_pos()
         self._answer_worker = AnswerWorker(
             self.mouse_ctrl, answer_str, option_positions, next_pos,
@@ -1291,8 +2049,101 @@ class MainWindow(QMainWindow):
             logging.info("答题动作执行成功")
         else:
             logging.warning("答题动作执行失败")
+        
+        if not self._running:  # 用户已停止
+            return
+        
+        # 自动停止检查
+        mode = self.config.get_stop_mode()
+        if mode == "count":
+            self._question_counter += 1
+            total = self.config.get_total_questions()
+            self.lbl_stop_progress.setText(f"已答：{self._question_counter} / {total}")
+            if self._question_counter >= total:
+                self._show_completion_dialog()
+                return
+        
         # 继续下一题
         QTimer.singleShot(500, self._step_screenshot)
+
+    def _show_completion_dialog(self):
+        self._completion_dialog_shown = True
+        self._running = False
+        self.lbl_stop_progress.setText("答题完成！")
+        r = QMessageBox.question(
+            self, "答题完成",
+            f"答题已完成（共 {self._question_counter} 题）。\n"
+            "如实际未完成答题，请按「是」继续，按「否」结束。",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        if r == QMessageBox.Yes:
+            self._running = True
+            self._completion_dialog_shown = False  # 重置标记
+            QTimer.singleShot(500, self._step_screenshot)
+        else:
+            self._finish_flow()
+
+    def _check_ocr_stop(self, ocr_text: str):
+        """OCR 模式下检查题号是否到达最后一题"""
+        mode = self.config.get_stop_mode()
+        if mode != "ocr":
+            return False
+        
+        region = self.config.get_progress_region()
+        if not region or not self._current_image:
+            return False
+        
+        # 裁切题号区域做二次 OCR
+        from PIL import Image
+        try:
+            r = region
+            cropped = self._current_image.crop((r["x"], r["y"], r["x"]+r["w"], r["y"]+r["h"]))
+            from core.ocr_module import recognize_image
+            sub_result = recognize_image(img=cropped)
+            if sub_result["success"]:
+                progress_text = sub_result["text"]
+                current, total = self._parse_progress(progress_text)
+                if current and total and current >= total:
+                    self._question_counter = total
+                    self.lbl_stop_progress.setText(f"已答：{current} / {total}")
+                    return True
+                if current and total:
+                    self.lbl_stop_progress.setText(f"进度：{current} / {total}")
+        except Exception as e:
+            logging.warning(f"OCR 进度识别失败: {e}")
+        return False
+
+    @staticmethod
+    def _parse_progress(text: str):
+        """从 OCR 文字中解析 当前题号/总题数"""
+        import re
+        # 支持格式: "1:100", "1/100", "1/100题", "1 OF 100", "第1题/共100题"
+        patterns = [
+            r'(\d+)\s*[:：/]\s*(\d+)',
+            r'(\d+)\s*OF\s*(\d+)',
+            r'第?\s*(\d+)\s*题?\s*/\s*共?\s*(\d+)\s*题?',
+        ]
+        for pat in patterns:
+            m = re.search(pat, text, re.IGNORECASE)
+            if m:
+                return int(m.group(1)), int(m.group(2))
+        return None, None
+
+    def _is_duplicate_question(self, ocr_text: str) -> bool:
+        """检查是否为重复扫描的相同题目（LLM 不稳定时重扫）"""
+        if not hasattr(self, '_last_ocr_texts'):
+            self._last_ocr_texts = []
+        simplified = ocr_text[:80].strip()
+        for prev in self._last_ocr_texts[-3:]:
+            if prev and len(prev) > 20:
+                short_len = min(len(prev), len(simplified))
+                same = sum(1 for i in range(min(short_len, 50)) if i < len(prev) and i < len(simplified) and prev[i] == simplified[i])
+                if short_len > 0 and same / min(short_len, 50) > 0.85:
+                    return True
+        self._last_ocr_texts.append(simplified)
+        if len(self._last_ocr_texts) > 3:
+            self._last_ocr_texts.pop(0)
+        return False
 
     def _on_answer_error(self, msg: str):
         logging.error(f"答题动作异常：{msg}")

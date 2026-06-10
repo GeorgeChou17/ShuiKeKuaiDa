@@ -175,8 +175,26 @@ class FloatingAnswerWindow(QMainWindow):
             self.setWindowFlags(self.windowFlags() & ~Qt.WindowStaysOnTopHint)
         self.show()   # 刷新窗口标志需要 hide+show
 
+    def reposition_to_widget(self, widget):
+        """将浮动窗口移动到 widget 所在屏幕的右上角"""
+        try:
+            from PyQt5.QtWidgets import QApplication
+            # 找到 widget 所在的屏幕
+            geo = widget.geometry()
+            center = geo.center()
+            screen = QApplication.screenAt(center)
+            if not screen:
+                screen = QApplication.primaryScreen()
+            if screen:
+                sg = screen.geometry()
+                # 放在该屏幕右上角
+                x = sg.x() + sg.width() - self.width() - 40
+                y = sg.y() + 40
+                self.move(x, y)
+        except Exception:
+            pass
+
     def set_subjective_mode(self, is_subjective: bool):
-        """主观题模式：更新标题"""
         if is_subjective:
             self.lbl_title.setText("主观题答案")
             self.txt_answer.setStyleSheet(
