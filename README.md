@@ -14,21 +14,21 @@
 |------|------|
 | **操作系统** | Windows 10（64 位，版本 1607+） |
 | **Python** | 3.9+（64 位，需添加到 PATH） |
-| **PowerShell** | 5.0+（Windows 10 内置） |
+| **PowerShell** | 5.0+（64 位，Windows 10 内置） |
 | **内存** | 8 GB RAM |
-| **磁盘** | 5 GB 可用空间（含依赖和 OCR 模型） |
+| **磁盘** | 1 GB 可用空间（含依赖和 OCR 模型） |
 | **显卡** | 无要求（CPU 模式可运行，速度较慢） |
-| **网络** | 首次启动需联网下载依赖和模型 |
+| **网络** | 首次启动需联网下载依赖和OCR模型 |
 
 ### 推荐配置
 
 | 类别 | 要求 |
 |------|------|
 | **操作系统** | Windows 10/11（64 位，22H2+） |
-| **Python** | 3.12（64 位） |
-| **PowerShell** | 5.1+（Windows 10/11 内置） |
+| **Python** | 3.13（64 位） |
+| **PowerShell** | 5.1+（64 位，Windows 10/11 内置） |
 | **内存** | 16 GB RAM |
-| **磁盘** | 10 GB 可用空间 |
+| **磁盘** | 1.5 GB 可用空间 |
 | **显卡** | NVIDIA GTX 1060 或更高（CUDA 12.6，GPU 加速 OCR 约 15x CPU） |
 | **网络** | 国内宽带（依赖/模型均走清华镜像和百度 BOS） |
 
@@ -50,7 +50,7 @@
 | 平台 | 现状 |
 |------|------|
 | **Debian / Ubuntu x64** | `pyautogui` 和 `keyboard` 需 X11 环境 + root 权限，`start.ps1` 无法运行需手动 pip install。OCR 可用但无法自动点击答题。 |
-| **Apple M 系列芯片（M1-M4）** | 通过 Parallels Desktop / VMware Fusion / UTM 运行 Windows 11 ARM64 虚拟机时，PaddlePaddle 无 ARM64 版本，OCR 功能可能受限。可运行界面，OCR 能否工作需自行验证。 |
+| **Apple M 系列芯片（M1-M4）** | 通过 Parallels Desktop / VMware Fusion / UTM 运行 Windows 11 ARM64 虚拟机时，PaddlePaddle 无 ARM64 版本，OCR 功能可能受限。可运行界面，OCR 能否工作需自行验证。同时，不建议使用MacBook Neo运行。 |
 
 #### ❌ 暂无测试报告（理论上存在障碍，欢迎用户反馈实测结果）
 
@@ -61,7 +61,7 @@
 | **Debian / ARM64**（树莓派 5、Rockchip 等） | PaddlePaddle 无 Linux ARM64 wheel；CPU 性能较弱，OCR 推理速度可能极慢。 | ⭐⭐⭐⭐ |
 | **Android Termux + Debian 13 ARM64** | 无桌面环境，`pyautogui` 无法模拟点击；PaddlePaddle ARM64 需自行编译。 | ⭐⭐⭐⭐⭐ |
 | **Android 小小电脑** ([tiny_computer](https://github.com/Cateners/tiny_computer)) | 底层为 Linux ARM64，受限于架构和 Android 沙箱。 | ⭐⭐⭐⭐⭐ |
-| **Android XoDos2** ([XoDos2](https://github.com/xodiosx/XoDos2)) | DOS 模拟环境，需确认是否支持 Python 3.9+ 运行时。 | ⭐⭐⭐⭐⭐ |
+| **Android XoDos2** ([XoDos2](https://github.com/xodiosx/XoDos2)) | 同小小电脑。 | ⭐⭐⭐⭐⭐ |
 | **Apple A 系列芯片**（iPad/iPhone） | 需通过 UTM 等虚拟机运行 Windows/Linux，性能高度受限。 | ⭐⭐⭐⭐⭐ |
 
 > 以上平台均**未经开发者测试**，理论上存在障碍但并非绝对不可能。如果你在这些平台上成功运行了水课快答，欢迎提交反馈报告。
@@ -72,11 +72,12 @@
 
 ### 一、安装
 
-1. 解压 `水课快答.zip` 到任意文件夹（D 盘、桌面均可）
+1. 自解压 `水课快答.exe` 到任意文件夹（D 盘、桌面均可）
 2. 右键 `start.ps1` → **使用 PowerShell 运行**
 3. 启动器会自动检测环境、安装依赖、下载 OCR 模型
 4. 首次运行时会询问是否创建桌面快捷方式和启用管理员权限
 5. 后续可通过桌面快捷方式或直接双击 `main.pyw` 启动
+6. 同样的，如果程序出现问题，可以尝试再次启动start.ps1进行修复
 
 > 若右键没有「使用 PowerShell 运行」选项：Win+R → `powershell` → `cd 解压路径` → `.\start.ps1`
 
@@ -84,12 +85,12 @@
 
 水课快答默认使用七牛云免费大模型，学生注册即可获得额度：
 
-1. 打开 [七牛云 AI 推理平台](https://portal.qiniu.com/ai-inference/model)
-2. 注册账号 → 控制台 → 创建 API Key
+1. 打开 [七牛云 AI 推理平台](https://portal.qiniu.com/ai-inference/model) 或七牛云微信小程序
+2. 注册账号 → 验证邮箱并实名认证 → 控制台 → 创建 API Key
 3. 复制 API Key，粘贴到软件的「LLM 设置」→「API Key」输入框中
 4. 点击「保存」
 
-> 软件已预填 API 地址和模型名称，不需改动。
+> 软件已预填 API 地址和模型名称，不需改动。但七牛云新用户在完成实名认证后会赠送300万免费tokens，用户可自行使用付费模型。用户也可以自行修改为其它api平台。
 
 ### 三、首次配置（以人卫平台为例）
 
