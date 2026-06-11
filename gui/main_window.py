@@ -132,7 +132,7 @@ class CountdownDialog(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("水课快答 v1.2.2")
+        self.setWindowTitle("水课快答 v1.3.0")
         self.setWindowIcon(QIcon("logo.ico"))
         self.resize(1000, 720)
         # 主界面字体
@@ -168,7 +168,7 @@ class MainWindow(QMainWindow):
         self._setup_hotkeys()   # 注册全局快捷键
         self._init_floating_window()
 
-        logging.info("水课快答 v1.2.2 启动成功")
+        logging.info("水课快答 v1.3.0 启动成功")
 
     # ========================================================
     # UI 构建
@@ -348,6 +348,44 @@ class MainWindow(QMainWindow):
         dyn_row1.addWidget(self.chk_dynamic_fallback)
         dyn_layout.addLayout(dyn_row1)
         
+        # 选项网格布局（预设中包含，非动态定位也生效）
+        grid_row = QHBoxLayout()
+        grid_row.addWidget(QLabel("选项布局（行列）："))
+        self.spin_grid_rows = QSpinBox()
+        self.spin_grid_rows.setRange(1, 10)
+        self.spin_grid_rows.setValue(max(1, self.config.get_option_grid_rows()))
+        self.spin_grid_rows.setToolTip("选项行数（如 5×1 填 5，3×2 填 3）")
+        self.spin_grid_rows.valueChanged.connect(self._on_grid_changed)
+        grid_row.addWidget(self.spin_grid_rows)
+        grid_row.addWidget(QLabel("×"))
+        self.spin_grid_cols = QSpinBox()
+        self.spin_grid_cols.setRange(1, 10)
+        self.spin_grid_cols.setValue(max(1, self.config.get_option_grid_cols()))
+        self.spin_grid_cols.setToolTip("选项列数（如 5×1 填 1，3×2 填 2）")
+        self.spin_grid_cols.valueChanged.connect(self._on_grid_changed)
+        grid_row.addWidget(self.spin_grid_cols)
+        grid_row.addStretch()
+        dyn_layout.addLayout(grid_row)
+        
+        # 网格间距
+        spacing_row = QHBoxLayout()
+        spacing_row.addWidget(QLabel("网格间距（X/Y）："))
+        self.spin_spacing_x = QSpinBox()
+        self.spin_spacing_x.setRange(0, 2000)
+        self.spin_spacing_x.setValue(max(0, self.config.get_grid_spacing_x()))
+        self.spin_spacing_x.setToolTip("选项列间距（像素），0=使用默认")
+        self.spin_spacing_x.valueChanged.connect(self._on_grid_changed)
+        spacing_row.addWidget(self.spin_spacing_x)
+        spacing_row.addWidget(QLabel("×"))
+        self.spin_spacing_y = QSpinBox()
+        self.spin_spacing_y.setRange(0, 500)
+        self.spin_spacing_y.setValue(max(0, self.config.get_grid_spacing_y()))
+        self.spin_spacing_y.setToolTip("选项行间距（像素），0=使用默认")
+        self.spin_spacing_y.valueChanged.connect(self._on_grid_changed)
+        spacing_row.addWidget(self.spin_spacing_y)
+        spacing_row.addStretch()
+        dyn_layout.addLayout(spacing_row)
+        
         dyn_row2 = QHBoxLayout()
         self.btn_cal_btn_region = QPushButton("📷 框选选项按钮区域")
         self.btn_cal_btn_region.clicked.connect(self._calibrate_button_region)
@@ -369,16 +407,33 @@ class MainWindow(QMainWindow):
         dyn_row3.addStretch()
         dyn_layout.addLayout(dyn_row3)
         
-        # 坐标偏移校准
-        dyn_row4 = QHBoxLayout()
-        self.btn_cal_offset = QPushButton("🎯 校准坐标偏移")
-        self.btn_cal_offset.clicked.connect(self._calibrate_offset)
+        # 校准模式 + 手动偏移
+        cal_row = QHBoxLayout()
+        self.chk_calibration = QCheckBox("校准模式（红色圆点预览，不实际点击）")
+        self.chk_calibration.toggled.connect(self._on_calibration_toggled)
+        cal_row.addWidget(self.chk_calibration)
+
+        cal_row.addWidget(QLabel("  X偏移:"))
+        self.spin_offset_x = QSpinBox()
+        self.spin_offset_x.setRange(-200, 200)
+        self.spin_offset_x.setValue(self.config.get_dynamic_offset().get("dx", 0) if self.config.get_dynamic_offset() else 0)
+        self.spin_offset_x.setEnabled(False)
+        self.spin_offset_x.valueChanged.connect(self._on_offset_changed)
+        cal_row.addWidget(self.spin_offset_x)
+
+        cal_row.addWidget(QLabel("Y偏移:"))
+        self.spin_offset_y = QSpinBox()
+        self.spin_offset_y.setRange(-200, 200)
+        self.spin_offset_y.setValue(self.config.get_dynamic_offset().get("dy", 0) if self.config.get_dynamic_offset() else 0)
+        self.spin_offset_y.setEnabled(False)
+        self.spin_offset_y.valueChanged.connect(self._on_offset_changed)
+        cal_row.addWidget(self.spin_offset_y)
+
         self.lbl_offset = QLabel("未校准")
         self.lbl_offset.setStyleSheet("color:#888;")
-        dyn_row4.addWidget(self.btn_cal_offset)
-        dyn_row4.addWidget(self.lbl_offset)
-        dyn_row4.addStretch()
-        dyn_layout.addLayout(dyn_row4)
+        cal_row.addWidget(self.lbl_offset)
+        cal_row.addStretch()
+        dyn_layout.addLayout(cal_row)
         
         layout.addWidget(grp_dynamic)
 
@@ -688,7 +743,7 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(tab)
         layout.setAlignment(Qt.AlignCenter)
 
-        title = QLabel("水课快答 v1.2")
+        title = QLabel("水课快答 v1.3")
         title.setStyleSheet("font-size:24px; font-weight:bold; color:#2196F3;")
         title.setAlignment(Qt.AlignCenter)
         layout.addWidget(title)
@@ -1132,6 +1187,25 @@ class MainWindow(QMainWindow):
                 self._on_option_count_changed(opt_count)
             self._refresh_options_label()  # 放在最后，不被 _on_option_count_changed 覆盖
             logging.info(f"已切换预设：{name}（选项数={opt_count}）")
+            # 同步动态定位开关到 UI
+            self.chk_dynamic_click.blockSignals(True)
+            self.chk_dynamic_click.setChecked(self.config.get_dynamic_click())
+            self.chk_dynamic_click.blockSignals(False)
+            self.chk_dynamic_fallback.blockSignals(True)
+            self.chk_dynamic_fallback.setChecked(self.config.get_dynamic_fallback())
+            self.chk_dynamic_fallback.blockSignals(False)
+            self.spin_grid_rows.blockSignals(True)
+            self.spin_grid_rows.setValue(max(1, self.config.get_option_grid_rows()))
+            self.spin_grid_rows.blockSignals(False)
+            self.spin_grid_cols.blockSignals(True)
+            self.spin_grid_cols.setValue(max(1, self.config.get_option_grid_cols()))
+            self.spin_grid_cols.blockSignals(False)
+            self.spin_spacing_x.blockSignals(True)
+            self.spin_spacing_x.setValue(max(0, self.config.get_grid_spacing_x()))
+            self.spin_spacing_x.blockSignals(False)
+            self.spin_spacing_y.blockSignals(True)
+            self.spin_spacing_y.setValue(max(0, self.config.get_grid_spacing_y()))
+            self.spin_spacing_y.blockSignals(False)
             # 同步更新预设详情
             detail = f"预设名：{name}\n"
             detail += f"选项数：{opt_count}\n"
@@ -1141,10 +1215,36 @@ class MainWindow(QMainWindow):
 
     def _on_dynamic_click_toggled(self, enabled: bool):
         self.config.set_dynamic_click(enabled)
-        logging.info(f"动态选项定位：{'启用' if enabled else '禁用'}")
+        self.config._save_category_config(self.config.get_current_category())
+        logging.info(f"动态选项定位：{'启用' if enabled else '禁用'}（已保存到当前分类）")
 
     def _on_dynamic_fallback_toggled(self, enabled: bool):
         self.config.set_dynamic_fallback(enabled)
+        self.config._save_category_config(self.config.get_current_category())
+
+    def _on_grid_changed(self):
+        self.config.set_option_grid_rows(self.spin_grid_rows.value())
+        self.config.set_option_grid_cols(self.spin_grid_cols.value())
+        self.config.set_grid_spacing_x(self.spin_spacing_x.value())
+        self.config.set_grid_spacing_y(self.spin_spacing_y.value())
+        self.config._save_category_config(self.config.get_current_category())
+
+    def _on_calibration_toggled(self, enabled: bool):
+        self.spin_offset_x.setEnabled(enabled)
+        self.spin_offset_y.setEnabled(enabled)
+        if enabled:
+            self.lbl_offset.setText("校准模式")
+            self.lbl_offset.setStyleSheet("color:#f44;")
+        else:
+            self.lbl_offset.setText("未校准")
+            self.lbl_offset.setStyleSheet("color:#888;")
+
+    def _on_offset_changed(self):
+        dx, dy = self.spin_offset_x.value(), self.spin_offset_y.value()
+        self.config.set_dynamic_offset({"dx": dx, "dy": dy})
+        self.config._save_category_config(self.config.get_current_category())
+        self.lbl_offset.setText(f"已校准：dx={dx}, dy={dy}")
+        self.lbl_offset.setStyleSheet("color:#4a4;")
 
     # ---- 预设分类管理（Tab内） ----
     def _refresh_preset_cat_combo(self):
@@ -1239,6 +1339,34 @@ class MainWindow(QMainWindow):
             self.lbl_offset.setText(f"已校准：dx={offset['dx']}, dy={offset['dy']}")
         else:
             self.lbl_offset.setText("未校准")
+        # 同步动态定位开关
+        self.chk_dynamic_click.blockSignals(True)
+        self.chk_dynamic_click.setChecked(self.config.get_dynamic_click())
+        self.chk_dynamic_click.blockSignals(False)
+        self.chk_dynamic_fallback.blockSignals(True)
+        self.chk_dynamic_fallback.setChecked(self.config.get_dynamic_fallback())
+        self.chk_dynamic_fallback.blockSignals(False)
+        self.spin_grid_rows.blockSignals(True)
+        self.spin_grid_rows.setValue(max(1, self.config.get_option_grid_rows()))
+        self.spin_grid_rows.blockSignals(False)
+        self.spin_grid_cols.blockSignals(True)
+        self.spin_grid_cols.setValue(max(1, self.config.get_option_grid_cols()))
+        self.spin_grid_cols.blockSignals(False)
+        self.spin_spacing_x.blockSignals(True)
+        self.spin_spacing_x.setValue(max(0, self.config.get_grid_spacing_x()))
+        self.spin_spacing_x.blockSignals(False)
+        self.spin_spacing_y.blockSignals(True)
+        self.spin_spacing_y.setValue(max(0, self.config.get_grid_spacing_y()))
+        self.spin_spacing_y.blockSignals(False)
+        # 同步校准偏移
+        offset = self.config.get_dynamic_offset() or {}
+        self.spin_offset_x.blockSignals(True)
+        self.spin_offset_x.setValue(offset.get("dx", 0))
+        self.spin_offset_x.blockSignals(False)
+        self.spin_offset_y.blockSignals(True)
+        self.spin_offset_y.setValue(offset.get("dy", 0))
+        self.spin_offset_y.blockSignals(False)
+        self.lbl_offset.setText(f"已校准：dx={offset.get('dx',0)}, dy={offset.get('dy',0)}" if offset else "未校准")
 
     # ---- 答题自动停止 ----
     def _on_stop_mode_changed(self, idx: int):
@@ -1762,12 +1890,12 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(1000, self._step_screenshot)
             return
         
-        # 动态选项定位：OCR 文字块坐标
+        # 动态选项定位：OCR 给出 A 的 Y 偏移，所有选项统一平移
         self._dynamic_options = {}
         if self.config.get_dynamic_click() and ocr_lines:
             opt_names = [chr(ord("A") + i) for i in range(self.spin_opt_count.value())]
             
-            # 步骤1：构建 OCR 文字块列表（过滤掉太短/太偏的文字）
+            # 步骤1：构建 OCR 文字块
             ocr_blocks = []
             for line in ocr_lines:
                 text = line.get("text", "").strip()
@@ -1779,53 +1907,77 @@ class MainWindow(QMainWindow):
                 if not xs or not ys:
                     continue
                 ocr_blocks.append({"text": text, "cx": sum(xs)/len(xs), "cy": sum(ys)/len(ys)})
+            logging.debug(f"OCR文字块({len(ocr_blocks)}个): " + " | ".join(
+                f"{b['text'][:15]}({b['cx']:.0f},{b['cy']:.0f})" for b in sorted(ocr_blocks, key=lambda b: b['cy'])))
             
-            # 步骤2：找按钮标签（如单独的 "A"）
-            from core.ocr_module import extract_option_positions
-            dynamic = extract_option_positions(ocr_lines, opt_names, scale_factor, None)
-            
-            # 步骤3：在按钮下方按Y排序取内容文字块，分配给各选项
-            content_pos = {}
-            if any(dynamic.get(n) for n in opt_names):
-                # 取按钮A的Y作为"选项区域"起始
-                btn_a = dynamic.get("A")
-                if btn_a:
-                    # 收集按钮Y以下的文字块（内容候选）
-                    candidates = sorted([b for b in ocr_blocks if b["cy"] >= btn_a[1] - 5 and len(b["text"]) >= 2], key=lambda b: b["cy"])
-                    # 为每个选项分配内容：跳过按钮标签和题目编号
-                    assigned = 0
-                    for block in candidates:
-                        text = block["text"]
-                        # 跳过独立字母（按钮标签本身）
-                        if len(text) == 1 and text.isascii():
-                            continue
-                        # 跳过题目编号行（如 "1.下面哪一项..."）
-                        if text[0].isdigit() and any(kw in text for kw in ["下面", "以下", "正确", "错误", "哪一", "分）"]):
-                            continue
-                        if assigned < len(opt_names) and text not in [content_pos.get(n, ("",""))[0] for n in content_pos]:
-                            name = opt_names[assigned]
-                            content_pos[name] = (block["cx"], block["cy"])
-                            assigned += 1
-            
-            # 步骤4：混合定位 — OCR提供Y（行），固定坐标提供X（列）
-            self._ocr_content_y = {}
+            # 步骤2：收集选项内容候选（按钮下方、非单字母、非题干）
             fixed = {o["name"]: o for o in self.config.get_option_positions()}
+            fixed_y_min = min(f.get("y", 99999) for f in fixed.values()) if fixed else 99999
+            candidates = []
+            for b in ocr_blocks:
+                if b["cy"] < fixed_y_min - 130 or len(b["text"]) < 2:
+                    continue
+                text = b["text"]
+                if len(text) == 1 and text.isascii():
+                    continue
+                # 过滤题干干扰行和评分标记（如 "(1分）"、"分）"）
+                if "分）" in text or "分)" in text:
+                    continue
+                if text[0].isdigit():
+                    if any(kw in text for kw in ["下面","以下","正确","错误","哪一","分）","不属于","属于","主要","常见","关于","下列","不宜","适宜"]):
+                        continue
+                    if len(text) >= 8:
+                        continue
+                candidates.append((b["cx"], b["cy"]))
+            candidates.sort(key=lambda b: b[1])  # 按Y排序
+            
+            # 步骤3：网格定位 — 当间距设置后，用网格精确计算
+            rect = self.config.get_screenshot_region()
+            offset_y = rect.y() if rect else 0
+            cal = self.config.get_dynamic_offset() or {"dx": 0, "dy": 0}
             screen_positions = {}
-            for name in opt_names:
-                if name in content_pos:
-                    cx_ocr, cy_ocr = content_pos[name]
-                    screen_y = int(cy_ocr + offset_y)
-                    self._ocr_content_y[name] = screen_y
-                    fx = int(fixed.get(name, {}).get("x", 0)) if name in fixed else int(cx_ocr + offset_x)
-                    screen_positions[name] = (fx, screen_y)
-                    logging.debug(f"混合定位{name}：固定X={fx}, OCR_Y={screen_y}")
-                elif dynamic.get(name):
-                    screen_positions[name] = (int(dynamic[name][0] + offset_x), int(dynamic[name][1] + offset_y))
-                elif name in fixed:
-                    screen_positions[name] = (int(fixed[name].get("x",0)), int(fixed[name].get("y",0)))
+            
+            spacing_x = self.config.get_grid_spacing_x()
+            spacing_y = self.config.get_grid_spacing_y()
+            grid_rows = max(1, self.config.get_option_grid_rows())
+            grid_cols = max(1, self.config.get_option_grid_cols())
+            use_grid = spacing_y > 0 and grid_rows * grid_cols >= len(opt_names)
+            
+            if candidates and "A" in fixed:
+                a_ocr_screen_y = int(candidates[0][1] + offset_y)  # OCR内容屏幕Y（不含预估偏移，由校准dy补偿）
+                shift = a_ocr_screen_y - fixed["A"].get("y", 0)
+                
+                if use_grid:
+                    # 网格模式：用OCR内容Y检测滚动偏移，再用固定坐标+间距计算
+                    a_x = int(fixed["A"].get("x", 0))
+                    anchor_y = int(fixed["A"].get("y", 0)) + shift  # 固定Y + 滚动偏移
+                    for i, name in enumerate(opt_names):
+                        if name in fixed:
+                            row, col = i % grid_rows, i // grid_rows
+                            screen_positions[name] = (
+                                a_x + col * spacing_x + cal.get("dx", 0),
+                                anchor_y + row * spacing_y + cal.get("dy", 0)
+                            )
+                else:
+                    # 无间距：A锚点 + 固定坐标偏移
+                    for name in opt_names:
+                        if name in fixed:
+                            screen_positions[name] = (
+                                int(fixed[name].get("x", 0)) + cal.get("dx", 0),
+                                int(fixed[name].get("y", 0)) + shift + cal.get("dy", 0)
+                            )
+            # 兜底：直接用固定坐标
+            if not screen_positions:
+                for name in opt_names:
+                    if name in fixed:
+                        screen_positions[name] = (int(fixed[name].get("x",0)), int(fixed[name].get("y",0)))
+            
             self._dynamic_options = screen_positions
             found = sum(1 for v in screen_positions.values() if v is not None)
-            logging.info(f"动态定位：找到 {found}/{len(opt_names)} 个选项坐标")
+            if use_grid:
+                logging.info(f"网格定位：{grid_rows}x{grid_cols} 间距({spacing_x}x{spacing_y}), {found}/{len(opt_names)} 个选项")
+            else:
+                logging.info(f"动态定位：找到 {found}/{len(opt_names)} 个选项坐标 (A锚点偏移={shift if candidates and 'A' in fixed else 'N/A'})")
         
         # 主观题检测
         if self._check_subjective(raw_text):
@@ -1898,6 +2050,20 @@ class MainWindow(QMainWindow):
         if best_match:
             logging.info(f"自动切换预设：{best_match}（题型={qtype}, 规范化={norm_qtype}）")
             self.config.load_preset(best_match, keep_positions=True)
+            self._active_preset_name = best_match
+            # 同步 UI
+            self.combo_presets.blockSignals(True)
+            idx = self.combo_presets.findText(best_match)
+            if idx >= 0:
+                self.combo_presets.setCurrentIndex(idx)
+            self.combo_presets.blockSignals(False)
+            presets = self.config.get_presets(category)
+            p = presets.get(best_match, {})
+            opt_count = len(p.get("options", []))
+            if opt_count > 0:
+                self.spin_opt_count.blockSignals(True)
+                self.spin_opt_count.setValue(opt_count)
+                self.spin_opt_count.blockSignals(False)
             self._refresh_options_label()
             nb = self.config.get_next_button_pos()
             if nb:
@@ -2094,6 +2260,45 @@ class MainWindow(QMainWindow):
             else:
                 logging.info(f"使用固定坐标：{len(option_positions)} 个选项")
         
+        # 校准模式：显示红色圆点预览，不实际点击
+        if self.chk_calibration.isChecked():
+            from gui.calibration_overlay import CalibrationOverlay
+            target_name = None
+            target_pos = (0, 0)
+            targets = MouseController.parse_answer_labels(answer_str, self.spin_opt_count.value())
+            if targets:
+                target_name = targets[0]
+                for opt in option_positions:
+                    if opt.get("name") == target_name:
+                        target_pos = (int(opt.get("x", 0)), int(opt.get("y", 0)))
+                        break
+            # 基准位置 = 选项最终坐标 - 当前偏移（让浮层自己加偏移）
+            dx = self.spin_offset_x.value()
+            dy = self.spin_offset_y.value()
+            base_pos = (target_pos[0] - dx, target_pos[1] - dy) if target_name else (0, 0)
+            # 网格锚点 = 选项A的位置（行列0,0），不是当前答案的位置
+            grid_anchor = None
+            for opt in option_positions:
+                if opt.get("name") == "A":
+                    grid_anchor = (int(opt.get("x", 0)) - dx, int(opt.get("y", 0)) - dy)
+                    break
+            self._cal_overlay = CalibrationOverlay(
+                None, offset_x=dx, offset_y=dy,
+                grid_rows=max(1, self.config.get_option_grid_rows()),
+                grid_cols=max(1, self.config.get_option_grid_cols()),
+                spacing_x=self.config.get_grid_spacing_x(),
+                spacing_y=self.config.get_grid_spacing_y(),
+            )
+            self._cal_overlay.set_target_and_grid(
+                target_name or "?", base_pos[0], base_pos[1],
+                grid_anchor[0] if grid_anchor else base_pos[0],
+                grid_anchor[1] if grid_anchor else base_pos[1],
+            )
+            self._cal_overlay.closed.connect(self._on_calibration_closed)
+            self._cal_overlay.offset_changed.connect(self._on_cal_offset_from_overlay)
+            self._cal_overlay.spacing_changed.connect(self._on_cal_spacing_from_overlay)
+            return
+
         next_pos = self.config.get_next_button_pos()
         self._answer_worker = AnswerWorker(
             self.mouse_ctrl, answer_str, option_positions, next_pos,
@@ -2103,6 +2308,36 @@ class MainWindow(QMainWindow):
         self._answer_worker.error.connect(self._on_answer_error)
         self._answer_worker.log.connect(lambda m: logging.info(m))
         self._answer_worker.start()
+
+    def _on_calibration_closed(self):
+        """校准浮层关闭后，停止答题流程"""
+        self._cal_overlay = None
+        self._finish_flow()  # 完全停止，不自动下一题
+
+    def _on_cal_offset_from_overlay(self, dx, dy):
+        """校准浮层点了保存后，同步偏移到主窗口并保存配置"""
+        self.spin_offset_x.blockSignals(True)
+        self.spin_offset_x.setValue(dx)
+        self.spin_offset_x.blockSignals(False)
+        self.spin_offset_y.blockSignals(True)
+        self.spin_offset_y.setValue(dy)
+        self.spin_offset_y.blockSignals(False)
+        self.config.set_dynamic_offset({"dx": dx, "dy": dy})
+        self.config._save_category_config(self.config.get_current_category())
+        self.lbl_offset.setText(f"已校准：dx={dx}, dy={dy}")
+        self.lbl_offset.setStyleSheet("color:#4a4;")
+
+    def _on_cal_spacing_from_overlay(self, sx, sy):
+        """校准浮层保存间距后，同步到主窗口"""
+        self.spin_spacing_x.blockSignals(True)
+        self.spin_spacing_x.setValue(sx)
+        self.spin_spacing_x.blockSignals(False)
+        self.spin_spacing_y.blockSignals(True)
+        self.spin_spacing_y.setValue(sy)
+        self.spin_spacing_y.blockSignals(False)
+        self.config.set_grid_spacing_x(sx)
+        self.config.set_grid_spacing_y(sy)
+        self.config._save_category_config(self.config.get_current_category())
 
     def _step_click_next_only(self):
         """仅点击下一题（主观题使用）"""

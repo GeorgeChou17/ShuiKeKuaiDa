@@ -190,8 +190,11 @@ class ConfigManager:
         # 兼容旧格式
         if isinstance(raw[0], (list, tuple)):
             names = ["A","B","C","D","E","F","G","H","I","J","K","L"]
-            return [{"name": names[i] if i < len(names) else str(i+1),
-                     "x": int(v[0]), "y": int(v[1])} for i, v in enumerate(raw)]
+            try:
+                return [{"name": names[i] if i < len(names) else str(i+1),
+                         "x": int(v[0]), "y": int(v[1])} for i, v in enumerate(raw)]
+            except (IndexError, ValueError, TypeError):
+                return []
         # 确保类型正确，过滤无效条目
         valid = []
         for o in raw:
@@ -236,6 +239,30 @@ class ConfigManager:
 
     def set_dynamic_fallback(self, enabled: bool):
         self.set("positions/dynamic_fallback", enabled)
+
+    def get_option_grid_rows(self) -> int:
+        return int(self.get("positions/option_grid_rows", 0))
+
+    def set_option_grid_rows(self, rows: int):
+        self.set("positions/option_grid_rows", rows)
+
+    def get_option_grid_cols(self) -> int:
+        return int(self.get("positions/option_grid_cols", 0))
+
+    def set_option_grid_cols(self, cols: int):
+        self.set("positions/option_grid_cols", cols)
+
+    def get_grid_spacing_x(self) -> int:
+        return int(self.get("positions/grid_spacing_x", 0))
+
+    def set_grid_spacing_x(self, px: int):
+        self.set("positions/grid_spacing_x", px)
+
+    def get_grid_spacing_y(self) -> int:
+        return int(self.get("positions/grid_spacing_y", 0))
+
+    def set_grid_spacing_y(self, px: int):
+        self.set("positions/grid_spacing_y", px)
 
     def get_dynamic_offset(self) -> dict:
         return self.get("positions/dynamic_offset", None)
@@ -319,17 +346,35 @@ class ConfigManager:
             self.set("positions/type_region", cfg["type_region"])
         if cfg.get("dynamic_offset"):
             self.set("positions/dynamic_offset", cfg["dynamic_offset"])
+        if "dynamic_click" in cfg:
+            self.set("positions/dynamic_click", cfg["dynamic_click"])
+        if "dynamic_fallback" in cfg:
+            self.set("positions/dynamic_fallback", cfg["dynamic_fallback"])
+        if "option_grid_rows" in cfg:
+            self.set("positions/option_grid_rows", cfg["option_grid_rows"])
+        if "option_grid_cols" in cfg:
+            self.set("positions/option_grid_cols", cfg["option_grid_cols"])
+        if "grid_spacing_x" in cfg:
+            self.set("positions/grid_spacing_x", cfg["grid_spacing_x"])
+        if "grid_spacing_y" in cfg:
+            self.set("positions/grid_spacing_y", cfg["grid_spacing_y"])
 
     def save_preset(self, name: str, options: list, next_button=None, button_region=None, type_region=None, category: str = None):
         if category is None:
             category = self.get_current_category()
         cat_dir = os.path.join(self._presets_dir, category)
         os.makedirs(cat_dir, exist_ok=True)
-        # 预设文件：仅选项坐标+下一题
+        # 预设文件：选项坐标+下一题+动态定位开关
         path = self._preset_path(category, name)
         data = {
             "options": options,
             "next_button": list(next_button) if next_button else None,
+            "dynamic_click": self.get("positions/dynamic_click", False),
+            "dynamic_fallback": self.get("positions/dynamic_fallback", True),
+            "option_grid_rows": self.get("positions/option_grid_rows", 0),
+            "option_grid_cols": self.get("positions/option_grid_cols", 0),
+            "grid_spacing_x": self.get("positions/grid_spacing_x", 0),
+            "grid_spacing_y": self.get("positions/grid_spacing_y", 0),
         }
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
@@ -342,6 +387,10 @@ class ConfigManager:
         path = self._preset_path(category, name)
         if os.path.isfile(path):
             os.remove(path)
+        # 删除后清空主配置中的选项坐标，避免重启后残留旧数据
+        self.set("positions/options", [])
+        self.set("positions/next_button", None)
+        self._save_file()
 
     def load_preset(self, name: str, category: str = None, keep_positions: bool = False) -> bool:
         """加载预设文件"""
@@ -386,6 +435,31 @@ class ConfigManager:
             self.set("positions/button_region", cat_cfg["button_region"])
         if cat_cfg.get("type_region"):
             self.set("positions/type_region", cat_cfg["type_region"])
+        # 加载动态定位开关（优先从预设文件，其次从分类配置）
+        if "dynamic_click" in p:
+            self.set("positions/dynamic_click", p["dynamic_click"])
+        elif "dynamic_click" in cat_cfg:
+            self.set("positions/dynamic_click", cat_cfg["dynamic_click"])
+        if "dynamic_fallback" in p:
+            self.set("positions/dynamic_fallback", p["dynamic_fallback"])
+        elif "dynamic_fallback" in cat_cfg:
+            self.set("positions/dynamic_fallback", cat_cfg["dynamic_fallback"])
+        if "option_grid_rows" in p:
+            self.set("positions/option_grid_rows", p["option_grid_rows"])
+        elif "option_grid_rows" in cat_cfg:
+            self.set("positions/option_grid_rows", cat_cfg["option_grid_rows"])
+        if "option_grid_cols" in p:
+            self.set("positions/option_grid_cols", p["option_grid_cols"])
+        elif "option_grid_cols" in cat_cfg:
+            self.set("positions/option_grid_cols", cat_cfg["option_grid_cols"])
+        if "grid_spacing_x" in p:
+            self.set("positions/grid_spacing_x", p["grid_spacing_x"])
+        elif "grid_spacing_x" in cat_cfg:
+            self.set("positions/grid_spacing_x", cat_cfg["grid_spacing_x"])
+        if "grid_spacing_y" in p:
+            self.set("positions/grid_spacing_y", p["grid_spacing_y"])
+        elif "grid_spacing_y" in cat_cfg:
+            self.set("positions/grid_spacing_y", cat_cfg["grid_spacing_y"])
 
     def get_type_region(self):
         return self.get("positions/type_region", None)
@@ -402,7 +476,7 @@ class ConfigManager:
         return os.path.join(self._presets_dir, category, "_category.json")
 
     def _save_category_config(self, category: str):
-        """保存分类级别的配置（截图区域、按钮区域、题型区域、校准偏移）"""
+        """保存分类级别的配置（截图区域、按钮区域、题型区域、校准偏移、动态定位开关）"""
         cat_dir = os.path.join(self._presets_dir, category)
         os.makedirs(cat_dir, exist_ok=True)
         path = self._category_config_path(category)
@@ -411,6 +485,12 @@ class ConfigManager:
             "button_region": self.get("positions/button_region"),
             "type_region": self.get("positions/type_region"),
             "dynamic_offset": self.get("positions/dynamic_offset"),
+            "dynamic_click": self.get("positions/dynamic_click", False),
+            "dynamic_fallback": self.get("positions/dynamic_fallback", True),
+            "option_grid_rows": self.get("positions/option_grid_rows", 0),
+            "option_grid_cols": self.get("positions/option_grid_cols", 0),
+            "grid_spacing_x": self.get("positions/grid_spacing_x", 0),
+            "grid_spacing_y": self.get("positions/grid_spacing_y", 0),
         }
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)

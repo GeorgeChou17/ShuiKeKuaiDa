@@ -1,4 +1,4 @@
-# 水课快答 v1.2.2
+# 水课快答 v1.3.0
 
 **把大学生从水课作业中解救出来——自动截图、AI 答题、模拟点击，全程无需动手。**
 
@@ -14,21 +14,21 @@
 |------|------|
 | **操作系统** | Windows 10（64 位，版本 1607+） |
 | **Python** | 3.9+（64 位，需添加到 PATH） |
-| **PowerShell** | 5.0+（64 位，Windows 10 内置） |
+| **PowerShell** | 5.0+（Windows 10 内置） |
 | **内存** | 8 GB RAM |
-| **磁盘** | 1 GB 可用空间（含依赖和 OCR 模型） |
+| **磁盘** | 5 GB 可用空间（含依赖和 OCR 模型） |
 | **显卡** | 无要求（CPU 模式可运行，速度较慢） |
-| **网络** | 首次启动需联网下载依赖和OCR模型 |
+| **网络** | 首次启动需联网下载依赖和模型 |
 
 ### 推荐配置
 
 | 类别 | 要求 |
 |------|------|
 | **操作系统** | Windows 10/11（64 位，22H2+） |
-| **Python** | 3.13（64 位） |
-| **PowerShell** | 5.1+（64 位，Windows 10/11 内置） |
+| **Python** | 3.12（64 位） |
+| **PowerShell** | 5.1+（Windows 10/11 内置） |
 | **内存** | 16 GB RAM |
-| **磁盘** | 1.5 GB 可用空间 |
+| **磁盘** | 10 GB 可用空间 |
 | **显卡** | NVIDIA GTX 1060 或更高（CUDA 12.6，GPU 加速 OCR 约 15x CPU） |
 | **网络** | 国内宽带（依赖/模型均走清华镜像和百度 BOS） |
 
@@ -50,7 +50,7 @@
 | 平台 | 现状 |
 |------|------|
 | **Debian / Ubuntu x64** | `pyautogui` 和 `keyboard` 需 X11 环境 + root 权限，`start.ps1` 无法运行需手动 pip install。OCR 可用但无法自动点击答题。 |
-| **Apple M 系列芯片（M1-M4）** | 通过 Parallels Desktop / VMware Fusion / UTM 运行 Windows 11 ARM64 虚拟机时，PaddlePaddle 无 ARM64 版本，OCR 功能可能受限。可运行界面，OCR 能否工作需自行验证。同时，不建议使用MacBook Neo运行。 |
+| **Apple M 系列芯片（M1-M4）** | 通过 Parallels Desktop / VMware Fusion / UTM 运行 Windows 11 ARM64 虚拟机时，PaddlePaddle 无 ARM64 版本，OCR 功能可能受限。可运行界面，OCR 能否工作需自行验证。 |
 
 #### ❌ 暂无测试报告（理论上存在障碍，欢迎用户反馈实测结果）
 
@@ -61,23 +61,118 @@
 | **Debian / ARM64**（树莓派 5、Rockchip 等） | PaddlePaddle 无 Linux ARM64 wheel；CPU 性能较弱，OCR 推理速度可能极慢。 | ⭐⭐⭐⭐ |
 | **Android Termux + Debian 13 ARM64** | 无桌面环境，`pyautogui` 无法模拟点击；PaddlePaddle ARM64 需自行编译。 | ⭐⭐⭐⭐⭐ |
 | **Android 小小电脑** ([tiny_computer](https://github.com/Cateners/tiny_computer)) | 底层为 Linux ARM64，受限于架构和 Android 沙箱。 | ⭐⭐⭐⭐⭐ |
-| **Android XoDos2** ([XoDos2](https://github.com/xodiosx/XoDos2)) | 同小小电脑。 | ⭐⭐⭐⭐⭐ |
+| **Android XoDos2** ([XoDos2](https://github.com/xodiosx/XoDos2)) | DOS 模拟环境，需确认是否支持 Python 3.9+ 运行时。 | ⭐⭐⭐⭐⭐ |
 | **Apple A 系列芯片**（iPad/iPhone） | 需通过 UTM 等虚拟机运行 Windows/Linux，性能高度受限。 | ⭐⭐⭐⭐⭐ |
 
 > 以上平台均**未经开发者测试**，理论上存在障碍但并非绝对不可能。如果你在这些平台上成功运行了水课快答，欢迎提交反馈报告。
 
 ---
 
+## 环境和文件不全（当自动下载失效时）
+
+启动器 `start.ps1` 会自动完成所有环境配置。但如果自动安装/下载失败，请按以下步骤手动操作。
+
+### 情况一：Python 未安装
+
+启动器会自动打开微软商店。如果没有自动打开，手动操作：
+
+1. 打开 **开始菜单**，搜索 **Python**
+2. 选择 **Python 3.13**（微软商店版），点击安装
+3. 安装完成后重新运行 `start.ps1`
+
+> 如果不想用微软商店，也可以从 [Python 官网](https://www.python.org/downloads/) 或 [阿里镜像](https://mirrors.aliyun.com/python/) 下载安装包。安装时务必勾选 **「Add Python to PATH」**。
+
+### 情况二：依赖安装失败（pip 报错）
+
+启动器会依次尝试 5 个国内镜像源。如果全部失败，请手动安装：
+
+1. 按 **Win + R**，输入 `cmd`，回车打开命令提示符
+2. 复制粘贴以下命令并回车：
+
+```
+pip install PyQt5 Pillow openai httpx pyautogui keyboard paddlepaddle-gpu paddleocr paddlex -i https://mirrors.aliyun.com/pypi/simple
+```
+
+3. 如果上面的命令报错，换一个镜像源试试：
+
+```
+pip install -r requirements.txt -i https://mirrors.cloud.tencent.com/pypi/simple
+```
+
+```
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+> `requirements.txt` 文件在本程序目录下，包含所有依赖的版本号。
+
+**常用国内 PyPI 镜像源：**
+
+| 镜像 | 地址 |
+|------|------|
+| 阿里云 | `https://mirrors.aliyun.com/pypi/simple` |
+| 腾讯云 | `https://mirrors.cloud.tencent.com/pypi/simple` |
+| 华为云 | `https://repo.huaweicloud.com/repository/pypi/simple` |
+| 清华大学 | `https://pypi.tuna.tsinghua.edu.cn/simple` |
+| 中科大 | `https://pypi.mirrors.ustc.edu.cn/simple` |
+
+### 情况三：OCR 模型下载失败
+
+OCR 模型用于识别屏幕上的题目文字，首次运行时自动下载（约 100MB）。如果自动下载失败，请手动下载：
+
+**需要下载的 5 个文件：**
+
+| 模型 | 作用 | 下载链接 |
+|------|------|---------|
+| PP-OCRv5_server_det | 文字检测 | [点击下载](https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/PP-OCRv5_server_det_infer.tar) |
+| PP-OCRv5_server_rec | 文字识别 | [点击下载](https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/PP-OCRv5_server_rec_infer.tar) |
+| PP-LCNet_x1_0_doc_ori | 文档方向检测 | [点击下载](https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/PP-LCNet_x1_0_doc_ori_infer.tar) |
+| PP-LCNet_x1_0_textline_ori | 文本行方向检测 | [点击下载](https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/PP-LCNet_x1_0_textline_ori_infer.tar) |
+| UVDoc | 文档矫正 | [点击下载](https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/UVDoc_infer.tar) |
+
+> 以上链接托管在百度智能云 BOS，国内访问流畅，5 个文件共约 100MB。
+
+**操作步骤：**
+
+1. 下载上面 5 个 `.tar` 文件
+2. 找到以下目录（没有就手动创建）：
+   ```
+   C:\Users\你的用户名\.paddlex\official_models\
+   ```
+   > 快速打开：按 Win+R，输入 `%USERPROFILE%\.paddlex\official_models` 回车
+3. 用 [7-Zip](https://www.7-zip.org/) 或 WinRAR 解压每个 `.tar` 文件
+4. 解压后会得到 5 个文件夹，直接放到 `official_models` 目录下
+
+**最终目录结构：**
+
+```
+C:\Users\你的用户名\.paddlex\official_models\
+├── PP-OCRv5_server_det\
+│   ├── inference.pdiparams
+│   ├── inference.pdmodel
+│   └── ...
+├── PP-OCRv5_server_rec\
+│   └── ...
+├── PP-LCNet_x1_0_doc_ori\
+│   └── ...
+├── PP-LCNet_x1_0_textline_ori\
+│   └── ...
+└── UVDoc\
+    └── ...
+```
+
+> 每个文件夹里应该有 `inference.pdiparams`、`inference.pdmodel` 等文件，不是再套一层文件夹。如果解压后多了一层目录，需要把里面的文件移出来。
+
+完成后重新运行 `start.ps1`，启动器会检测到模型已存在，跳过下载步骤。
+
 ## 使用指南
 
 ### 一、安装
 
-1. 自解压 `水课快答.exe` 到任意文件夹（D 盘、桌面均可）
+1. 解压 `水课快答.zip` 到任意文件夹（D 盘、桌面均可）
 2. 右键 `start.ps1` → **使用 PowerShell 运行**
 3. 启动器会自动检测环境、安装依赖、下载 OCR 模型
 4. 首次运行时会询问是否创建桌面快捷方式和启用管理员权限
 5. 后续可通过桌面快捷方式或直接双击 `main.pyw` 启动
-6. 同样的，如果程序出现问题，可以尝试再次启动start.ps1进行修复
 
 > 若右键没有「使用 PowerShell 运行」选项：Win+R → `powershell` → `cd 解压路径` → `.\start.ps1`
 
@@ -85,12 +180,12 @@
 
 水课快答默认使用七牛云免费大模型，学生注册即可获得额度：
 
-1. 打开 [七牛云 AI 推理平台](https://portal.qiniu.com/ai-inference/model) 或七牛云微信小程序
-2. 注册账号 → 验证邮箱并实名认证 → 控制台 → 创建 API Key
+1. 打开 [七牛云 AI 推理平台](https://portal.qiniu.com/ai-inference/model)
+2. 注册账号（验证邮箱并实名认证） → 控制台 → 创建 API Key
 3. 复制 API Key，粘贴到软件的「LLM 设置」→「API Key」输入框中
 4. 点击「保存」
 
-> 软件已预填 API 地址和模型名称，不需改动。但七牛云新用户在完成实名认证后会赠送300万免费tokens，用户可自行使用付费模型。用户也可以自行修改为其它api平台。
+> 软件已预填 API 地址和模型名称，不需改动。但七牛云对新用户赠送了300万tokens的免费额度，应该足够免费使用一段时间的付费模型，具体详见**模型广场**。
 
 ### 三、首次配置（以人卫平台为例）
 

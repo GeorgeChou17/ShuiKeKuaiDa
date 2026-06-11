@@ -72,12 +72,21 @@ try {
     Show-Error 'Python 未安装' @'
 未检测到 Python 3.9+ 环境。
 
-请按以下步骤操作：
-1. 访问 https://mirrors.tuna.tsinghua.edu.cn/python/ 下载 Python（推荐 3.12）
-2. 运行安装包，务必勾选 "Add Python to PATH"
-3. 安装完成后重新运行本启动器
+推荐从微软商店安装（最简单，自动加入 PATH）：
+  开始菜单搜索 "Python" → 选择 Python 3.13 安装
+
+或手动下载：
+  - 官网: https://www.python.org/downloads/
+  - 国内镜像: https://mirrors.aliyun.com/python/
+
+安装完成后重新运行本启动器。
 '@
-    Start-Process 'https://mirrors.tuna.tsinghua.edu.cn/python/'
+    # 优先尝试打开微软商店 Python 3.13 页面
+    try {
+        Start-Process 'ms-windows-store://pdp/?productid=9PNRBTZXMB4Z'
+    } catch {
+        Start-Process 'https://www.python.org/downloads/'
+    }
     Read-Host '按回车键退出'
     exit 1
 }
@@ -115,21 +124,68 @@ if ($missing.Count -gt 0) {
     Write-Host "`n  缺失依赖: $($missing -join ', ')" -ForegroundColor Yellow
     $ok = Show-Ask '安装依赖' "以下依赖缺失，是否立即安装？`n`n$($missing -join '`n')`n`n(paddlepaddle-gpu 体积较大，可能需要几分钟)"
     if (-not $ok) {
-        Show-Info '无法启动' '缺少必要依赖，程序无法启动。'
+        $pipInfo = @"
+缺少必要依赖，程序无法启动。
+
+手动安装方法：按 Win+R，输入 cmd 回车，然后粘贴：
+
+pip install PyQt5 Pillow openai httpx pyautogui keyboard paddlepaddle-gpu paddleocr paddlex -i https://mirrors.aliyun.com/pypi/simple
+
+如果失败，换源试试：
+pip install -r requirements.txt -i https://mirrors.cloud.tencent.com/pypi/simple
+
+requirements.txt 文件就在本程序目录下。
+"@
+        Show-Info '无法启动' $pipInfo
         Read-Host '按回车键退出'
         exit 1
     }
-    Write-Host "`n  正在从清华 PyPI 镜像安装..." -ForegroundColor Cyan
+    Write-Host "`n  正在安装依赖（多镜像自动切换）..." -ForegroundColor Cyan
     Write-Host '  ----------------------------------------'
-    & python -m pip install -r $REQUIREMENTS -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "  [WARN] 镜像失败，尝试官方源..." -ForegroundColor Yellow
-        & python -m pip install -r $REQUIREMENTS
+
+    $mirrors = @(
+        @{ Name = '阿里云';   Url = 'https://mirrors.aliyun.com/pypi/simple';         Host = 'mirrors.aliyun.com'        },
+        @{ Name = '腾讯云';   Url = 'https://mirrors.cloud.tencent.com/pypi/simple';  Host = 'mirrors.cloud.tencent.com' },
+        @{ Name = '华为云';   Url = 'https://repo.huaweicloud.com/repository/pypi/simple'; Host = 'repo.huaweicloud.com'  },
+        @{ Name = '清华大学'; Url = 'https://pypi.tuna.tsinghua.edu.cn/simple';        Host = 'pypi.tuna.tsinghua.edu.cn'  },
+        @{ Name = '中科大';   Url = 'https://pypi.mirrors.ustc.edu.cn/simple';         Host = 'pypi.mirrors.ustc.edu.cn'   }
+    )
+
+    $installed = $false
+    foreach ($m in $mirrors) {
+        Write-Host "  尝试 $($m.Name) 镜像..." -ForegroundColor Cyan
+        & python -m pip install -r $REQUIREMENTS -i $m.Url --trusted-host $m.Host 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "  [OK] 从 $($m.Name) 镜像安装成功" -ForegroundColor Green
+            $installed = $true
+            break
+        } else {
+            Write-Host "  [WARN] $($m.Name) 镜像失败，尝试下一个..." -ForegroundColor Yellow
+        }
+    }
+
+    if (-not $installed) {
+        Write-Host "  [WARN] 所有国内镜像失败，尝试官方源..." -ForegroundColor Yellow
+        & python -m pip install -r $REQUIREMENTS 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) {
-            Show-Error '安装失败' '依赖安装失败，请检查网络连接后重试。'
+            Show-Error '安装失败' @'
+依赖自动安装失败（所有镜像均不可用）。
+
+请手动安装：按 Win+R，输入 cmd 回车，然后复制粘贴以下命令：
+
+pip install PyQt5 Pillow openai httpx pyautogui keyboard paddlepaddle-gpu paddleocr paddlex -i https://mirrors.aliyun.com/pypi/simple
+
+如果上面的命令也失败，试试其他镜像：
+pip install -r requirements.txt -i https://mirrors.cloud.tencent.com/pypi/simple
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+requirements.txt 文件就在本程序目录下。
+安装完成后重新运行本启动器。
+'@
             Read-Host '按回车键退出'
             exit 1
         }
+        Write-Host "  [OK] 从官方源安装成功" -ForegroundColor Green
     }
     Write-Host "  [OK] 依赖安装完成" -ForegroundColor Green
 }
@@ -146,18 +202,86 @@ $modelsOk  = (Test-Path $modelDet) -and (Test-Path $modelRec)
 
 if (-not $modelsOk) {
     Write-Host "  [WARN] OCR 模型尚未下载" -ForegroundColor Yellow
-    $ok = Show-Ask '下载模型' "OCR 模型尚未下载（约 100MB）。`n模型托管在百度智能云 BOS，国内访问流畅。`n`n是否立即下载？"
+    $ok = Show-Ask '下载模型' "OCR 模型尚未下载（约 100MB）。`n模型托管在百度智能云 BOS，国内访问流畅。`n`n是否立即自动下载？`n（选择"否"可查看手动下载教程）"
     if (-not $ok) {
-        Show-Info '无法启动' '缺少 OCR 模型，程序无法启动。'
+        $manualInfo = @"
+缺少 OCR 模型，程序无法启动。
+
+手动下载方法：
+1. 下载以下 5 个文件（浏览器直接打开）：
+   https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/PP-OCRv5_server_det_infer.tar
+   https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/PP-OCRv5_server_rec_infer.tar
+   https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/PP-LCNet_x1_0_doc_ori_infer.tar
+   https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/PP-LCNet_x1_0_textline_ori_infer.tar
+   https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/UVDoc_infer.tar
+
+2. 解压到：$env:USERPROFILE\.paddlex\official_models\
+
+3. 确保目录结构如：
+   .paddlex\official_models\PP-OCRv5_server_det\（含 .pdiparams 文件）
+   .paddlex\official_models\PP-OCRv5_server_rec\（含 .pdiparams 文件）
+   ...以此类推
+
+完成后重新运行本启动器。
+"@
+        Show-Info '无法启动' $manualInfo
         Read-Host '按回车键退出'
         exit 1
     }
     Write-Host "`n  正在下载 OCR 模型（首次约 100MB，请耐心等待）..." -ForegroundColor Cyan
     Write-Host '  ----------------------------------------'
     $env:PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT = '0'
-    & python -c 'import os; os.environ["PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT"]="0"; from paddleocr import PaddleOCR; _=PaddleOCR(lang="ch", use_textline_orientation=True); print("DOWNLOAD_OK")'
-    if ($LASTEXITCODE -ne 0) {
-        Show-Error '下载失败' "OCR 模型下载失败。`n请检查网络连接后重试，或联系开发者获取离线包。"
+    $modelDownloadOK = $false
+    for ($retry = 1; $retry -le 3; $retry++) {
+        if ($retry -gt 1) {
+            Write-Host "  [INFO] 第 $retry 次重试（等待 5 秒）..." -ForegroundColor Cyan
+            Start-Sleep -Seconds 5
+        }
+        & python -c 'import os; os.environ["PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT"]="0"; from paddleocr import PaddleOCR; _=PaddleOCR(lang="ch", use_textline_orientation=True); print("DOWNLOAD_OK")' 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            $modelDownloadOK = $true
+            break
+        }
+        Write-Host "  [WARN] 下载失败，准备重试..." -ForegroundColor Yellow
+    }
+    if (-not $modelDownloadOK) {
+        $manualMsg = @"
+OCR 模型自动下载失败（已重试 3 次）。
+
+如果反复失败，请手动下载以下 5 个文件：
+
+【下载地址】（浏览器直接打开即可）
+1. https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/PP-OCRv5_server_det_infer.tar
+2. https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/PP-OCRv5_server_rec_infer.tar
+3. https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/PP-LCNet_x1_0_doc_ori_infer.tar
+4. https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/PP-LCNet_x1_0_textline_ori_infer.tar
+5. https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/UVDoc_infer.tar
+
+【放置位置】
+$env:USERPROFILE\.paddlex\official_models\
+
+【操作步骤】
+1. 下载上面 5 个 .tar 文件（共约 100MB）
+2. 在上述路径下创建 official_models 文件夹（如果没有）
+3. 用 7-Zip 或 WinRAR 解压每个 .tar 文件
+4. 解压后会得到 5 个文件夹，直接放在 official_models 下
+
+最终目录结构应该是：
+  %USERPROFILE%\.paddlex\official_models\
+  ├── PP-OCRv5_server_det\
+  │   └── inference.pdiparams 等文件
+  ├── PP-OCRv5_server_rec\
+  │   └── inference.pdiparams 等文件
+  ├── PP-LCNet_x1_0_doc_ori\
+  │   └── inference.pdiparams 等文件
+  ├── PP-LCNet_x1_0_textline_ori\
+  │   └── inference.pdiparams 等文件
+  └── UVDoc\
+      └── inference.pdiparams 等文件
+
+完成后重新运行本启动器即可。
+"@
+        Show-Error '下载失败' $manualMsg
         Read-Host '按回车键退出'
         exit 1
     }
