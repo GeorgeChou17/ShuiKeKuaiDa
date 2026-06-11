@@ -30,7 +30,7 @@ from PyQt5.QtWidgets import (
     QInputDialog, QSpinBox, QLineEdit, QLabel, QPushButton,
     QCheckBox, QComboBox, QTabWidget, QWidget, QVBoxLayout,
     QHBoxLayout, QGroupBox, QFormLayout, QTextEdit,
-    QProgressBar, QStatusBar, QMessageBox,
+    QProgressBar, QStatusBar, QMessageBox, QDialog,
 )
 
 from core.config_manager import ConfigManager
@@ -58,12 +58,82 @@ class QTextEditLogger(logging.Handler):
 
 
 # ============================================================
+# 429 倒计时弹窗（非模态，确保 QTimer 可靠触发）
+# ============================================================
+class CountdownDialog(QDialog):
+    """带倒计时的弹窗，超时后自动触发默认操作。使用非模态 show() 避免 exec_() 阻塞事件循环。"""
+
+    retry_clicked = pyqtSignal()
+    cancel_clicked = pyqtSignal()
+
+    def __init__(self, parent, title, message, timeout_seconds):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setWindowModality(Qt.ApplicationModal)  # 对应用模态，但不阻塞事件循环处理 timer
+
+        layout = QVBoxLayout(self)
+
+        self.msg_label = QLabel(message)
+        self.msg_label.setWordWrap(True)
+        layout.addWidget(self.msg_label)
+
+        self.countdown_label = QLabel(f"将在 {timeout_seconds} 秒后自动重试...")
+        self.countdown_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.countdown_label)
+
+        btn_layout = QHBoxLayout()
+        self.retry_btn = QPushButton("立即重试")
+        self.retry_btn.clicked.connect(self.on_retry)
+        btn_layout.addWidget(self.retry_btn)
+
+        self.cancel_btn = QPushButton("取消答题")
+        self.cancel_btn.clicked.connect(self.on_cancel)
+        btn_layout.addWidget(self.cancel_btn)
+
+        layout.addLayout(btn_layout)
+        self.setFixedSize(450, 200)
+
+        # 倒计时
+        self.remaining = timeout_seconds
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_countdown)
+        self.timer.start(1000)
+
+    def update_countdown(self):
+        self.remaining -= 1
+        if self.remaining <= 0:
+            self.timer.stop()
+            self.retry_clicked.emit()
+            self.close()
+        else:
+            self.countdown_label.setText(f"将在 {self.remaining} 秒后自动重试...")
+
+    def on_retry(self):
+        self.timer.stop()
+        self.retry_clicked.emit()
+        self.close()
+
+    def on_cancel(self):
+        self.timer.stop()
+        self.cancel_clicked.emit()
+        self.close()
+
+    def closeEvent(self, event):
+        # 如果用户点击 X 关闭，默认重试
+        self.timer.stop()
+        if self.remaining > 0:
+            self.retry_clicked.emit()
+        event.accept()
+
+
+# ============================================================
 # 主窗口
 # ============================================================
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("水课快答 v1.2.2")
+        self.setWindowIcon(QIcon("logo.ico"))
         self.resize(1000, 720)
         # 主界面字体
         font = self.font()
@@ -1923,26 +1993,20 @@ class MainWindow(QMainWindow):
         retry_delay = self.config.get_retry_delay()
         
         if is_429:
-            # 429 限流：弹窗告知 + 自动重试
-            r = QMessageBox.question(
+            # 429 限流：弹窗告知 + 自动重试（非模态 CountdownDialog，QTimer 不受 exec_() 影响）
+            dialog = CountdownDialog(
                 self, "API 限流（429）",
                 f"由于 API 的多并发限制，导致模型拒绝工作。\n\n"
                 f"程序将在 {retry_delay} 秒后自动重试。\n"
                 f"您也可以：\n"
-                f"• 点击「是」立即重试\n"
-                f"• 点击「否」取消答题",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes
+                f"• 点击「立即重试」立即重试\n"
+                f"• 点击「取消答题」停止答题",
+                retry_delay
             )
-            if r == QMessageBox.Yes:
-                logging.info(f"用户选择立即重试（429）")
-                QTimer.singleShot(1000, lambda: self._retry_current_question())
-            elif r == QMessageBox.No:
-                logging.info(f"用户取消答题（429）")
-                self._finish_flow()
-            else:
-                # 用户关闭了弹窗（未选择），按自动重试处理
-                logging.info(f"429 自动重试将在 {retry_delay} 秒后执行")
-                QTimer.singleShot(retry_delay * 1000, lambda: self._retry_current_question() if self._running else None)
+            dialog.retry_clicked.connect(self._retry_current_question)
+            dialog.cancel_clicked.connect(self._finish_flow)
+            dialog.show()  # 非模态显示，不阻塞事件循环
+            return  # 立即返回，由信号驱动后续操作
         else:
             # 非 429 错误：保留原有重试逻辑
             r = QMessageBox.question(

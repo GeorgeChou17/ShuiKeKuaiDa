@@ -2,12 +2,16 @@
 PyQt5>=5.15.0
 
 # ========== 截图 ==========
-mss>=9.0.0
 Pillow>=10.0.0
 
 # ========== OCR ==========
-paddlepaddle>=2.6.0
-paddleocr>=2.7.0.3
+# 有 NVIDIA GPU 的用户安装：
+paddlepaddle-gpu>=3.0.0
+# 没有 GPU 的用户安装 CPU 版本（二选一）：
+# paddlepaddle>=3.0.0
+
+paddleocr>=3.0.0
+paddlex>=3.0.0
 
 # ========== LLM ==========
 openai>=1.30.0
@@ -19,6 +23,3 @@ pywin32>=306
 
 # ========== 快捷键 ==========
 keyboard>=0.13.5
-
-# ========== 打包 ==========
-pyinstaller>=6.0.0

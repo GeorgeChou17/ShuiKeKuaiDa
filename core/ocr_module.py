@@ -56,7 +56,107 @@ def _patch_subprocess_to_avoid_where_exe():
 
 _patch_subprocess_to_avoid_where_exe()
 
+
+# ============================================================
+# 关键修复：PyInstaller 单文件 exe 中 importlib.metadata 找不到 .dist-info
+#
+# paddlex 的 OCR pipeline 在初始化时会通过 @pipeline_requires_extra
+# 检查 ocr / ocr-core extra 的所有依赖是否已安装。
+# 检查方式：importlib.metadata.version(dep) — 需要 .dist-info 目录。
+# PyInstaller 默认不收集 .dist-info，导致所有依赖被判定为"未安装"，
+# 抛出 DependencyError: "A dependency error occurred during pipeline creation."
+#
+# 额外问题：import paddlex.utils.deps 会触发整个 paddlex 包的初始化，
+# 导致 paddlex.inference.pipelines.ocr.result 被提前导入。
+# result.py 在模块级别调用 is_dep_available("opencv-contrib-python")，
+# 如果此时 is_dep_available 还未被 patch，cv2 将不会被导入。
+#
+# 解决方案：
+# 1. 先创建一个 mock 的 paddlex.utils.deps 模块，预注入 sys.modules
+# 2. mock 模块中 is_dep_available 直接返回 True
+# 3. 然后导入真正的 paddlex.utils.deps，用 mock 的函数替换真实的函数
+# ============================================================
+def _patch_paddlex_deps_for_frozen():
+    """在 PyInstaller 打包环境中绕过 paddlex 的 .dist-info 依赖检查"""
+    # 在源码运行模式下，先检查真实模块是否可用且完整
+    if not getattr(sys, 'frozen', False):
+        try:
+            import paddlex.utils.deps as _real_deps
+            required_attrs = [
+                'is_dep_available', 'require_extra', 'require_deps',
+                'class_requires_deps', 'pipeline_requires_extra', 'DependencyError'
+            ]
+            if all(hasattr(_real_deps, attr) for attr in required_attrs):
+                # 真实模块完整，不需要 patch
+                return
+        except Exception:
+            pass  # 真实模块导入失败，继续 patch
+
+    try:
+        import types
+        _mock_deps = types.ModuleType("paddlex.utils.deps")
+
+        def _patched_is_dep_available(dep, /, check_version=False):
+            return True
+
+        def _patched_require_extra(extra, *, obj_name=None, alt=None):
+            if extra in ("ocr", "ocr-core"):
+                return
+            return
+
+        def _patched_require_deps(*deps, obj_name=None):
+            return
+
+        def _patched_class_requires_deps(*deps, obj_name=None):
+            """类装饰器 mock：不做任何依赖检查，直接返回原类"""
+            def decorator(cls):
+                return cls
+            return decorator
+
+        def _patched_pipeline_requires_extra(extra, *deps, obj_name=None):
+            """Pipeline 装饰器 mock：不做任何依赖检查，直接返回原对象"""
+            def decorator(cls_or_func):
+                return cls_or_func
+            return decorator
+
+        _mock_deps.is_dep_available = _patched_is_dep_available
+        _mock_deps.require_extra = _patched_require_extra
+        _mock_deps.require_deps = _patched_require_deps
+        _mock_deps.class_requires_deps = _patched_class_requires_deps
+        _mock_deps.pipeline_requires_extra = _patched_pipeline_requires_extra
+        _mock_deps.is_extra_available = lambda extra: True
+        _mock_deps.DependencyError = Exception
+
+        # 预注入 sys.modules，这样 result.py 中的 from ....utils.deps import ...
+        # 会拿到 mock 的函数
+        sys.modules["paddlex.utils.deps"] = _mock_deps
+
+        # 步骤 2：现在安全地导入真正的 paddlex.utils.deps（或从 sys.modules 拿到 mock）
+        import importlib
+        _real_deps = importlib.import_module("paddlex.utils.deps")
+
+        # 步骤 3：用 mock 函数替换真实函数，并清除缓存
+        _real_deps.is_dep_available = _patched_is_dep_available
+        _real_deps.require_extra = _patched_require_extra
+        _real_deps.require_deps = _patched_require_deps
+        _real_deps.class_requires_deps = _patched_class_requires_deps
+        _real_deps.pipeline_requires_extra = _patched_pipeline_requires_extra
+        if hasattr(_real_deps.is_extra_available, "cache_clear"):
+            _real_deps.is_extra_available.cache_clear()
+
+        # 更新 sys.modules 指向真正的模块（但函数已被 patch）
+        sys.modules["paddlex.utils.deps"] = _real_deps
+
+        print(f"[PaddleX Deps Patch] 已应用 (frozen={getattr(sys, 'frozen', False)})")
+    except Exception as e:
+        print(f"[PaddleX Deps Patch] 失败: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 logger = logging.getLogger(__name__)
+
+_patch_paddlex_deps_for_frozen()
 
 # PaddleOCR 延迟导入，避免启动时就加载大模型
 _paddle_ocr = None
@@ -154,6 +254,9 @@ def _get_paddle_ocr(use_angle_cls: bool = True, lang: str = "ch", device: str = 
             except Exception as e:
                 logger.warning(f"设置 GPU 模式失败: {e}，回退 CPU")
         
+        # PaddleOCR 3.x 基于 paddlex pipeline，初始化时必须能加载 configs/pipelines/OCR.yaml
+        # 打包后这个文件通过 main.spec 的 datas 参数确保被包含
+        # 模型通过 model_name 自动在 ~/.paddlex/official_models/ 中查找（用户首次运行时已下载）
         _paddle_ocr = _PaddleOCR(
             lang=lang,
             use_textline_orientation=use_angle_cls,
