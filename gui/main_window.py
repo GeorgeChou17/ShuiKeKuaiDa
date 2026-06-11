@@ -1966,6 +1966,10 @@ class MainWindow(QMainWindow):
         if not self._running:  # 用户已停止，忽略回传
             return
         answer = result.get("answer", "")
+        qtype = result.get("question_type", "未知")
+        analysis = result.get("analysis", "")
+        confidence = result.get("confidence", 0.0)
+        thinking = result.get("thinking", "")
 
         info = f"题型：{qtype}\n分析：{analysis}\n答案：{answer}\n置信度：{confidence:.0%}"
         self.txt_question_info.setText(info)
