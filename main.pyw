@@ -10,6 +10,15 @@ import os
 # 必须在 import paddle/paddleocr 之前设置
 os.environ.setdefault("PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT", "0")
 
+# 修复 Qt 平台插件找不到的问题（qwindows.dll）
+try:
+    import PyQt5
+    _qt_plugin_path = os.path.join(os.path.dirname(PyQt5.__file__), "Qt5", "plugins", "platforms")
+    if os.path.isdir(_qt_plugin_path):
+        os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = _qt_plugin_path
+except Exception:
+    pass
+
 # 关键修复：防止 PaddlePaddle 调用 where.exe 导致 0xc0000142 崩溃
 # （同 main.py 中的 _patch_subprocess_for_paddle）
 def _patch_subprocess_for_paddle():

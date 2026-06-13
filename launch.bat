@@ -1,3 +1,3 @@
 @echo off
-echo Starting ShuiKeKuaiDa...
-start powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0start.ps1"
+cd /d "%~dp0"
+powershell -NoProfile -ExecutionPolicy Bypass -File "start.ps1"
