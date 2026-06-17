@@ -132,7 +132,7 @@ class CountdownDialog(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("水课快答 v1.3.1")
+        self.setWindowTitle("水课快答 v1.3.2")
         self.setWindowIcon(QIcon("logo.ico"))
         self.resize(1000, 720)
         # 主界面字体
@@ -168,7 +168,7 @@ class MainWindow(QMainWindow):
         self._setup_hotkeys()   # 注册全局快捷键
         self._init_floating_window()
 
-        logging.info("水课快答 v1.3.1 启动成功")
+        logging.info("水课快答 v1.3.2 启动成功")
 
     # ========================================================
     # UI 构建
@@ -743,7 +743,7 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(tab)
         layout.setAlignment(Qt.AlignCenter)
 
-        title = QLabel("水课快答 v1.3.1")
+        title = QLabel("水课快答 v1.3.2")
         title.setStyleSheet("font-size:24px; font-weight:bold; color:#2196F3;")
         title.setAlignment(Qt.AlignCenter)
         layout.addWidget(title)

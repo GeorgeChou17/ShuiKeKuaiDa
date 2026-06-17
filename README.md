@@ -1,4 +1,4 @@
-# 水课快答 v1.3.1
+# 水课快答 v1.3.2
 
 **把大学生从水课作业中解救出来——自动截图、AI 答题、模拟点击，全程无需动手。**
 
@@ -8,17 +8,20 @@
 
 ## 系统要求
 
-### 最低配置
+### 最低配置（能跑就行）
 
 | 类别 | 要求 |
 |------|------|
 | **操作系统** | Windows 10（64 位，版本 1607+） |
 | **Python** | 3.9+（64 位，需添加到 PATH） |
 | **PowerShell** | 5.0+（Windows 10 内置） |
+| **CPU** | 任意 64 位双核（Intel 4 代 Haswell / AMD Zen 以上） |
 | **内存** | 8 GB RAM |
 | **磁盘** | 5 GB 可用空间（含依赖和 OCR 模型） |
-| **显卡** | 无要求（CPU 模式可运行，速度较慢） |
+| **显卡** | 无要求（CPU 模式可运行） |
 | **网络** | 首次启动需联网下载依赖和模型 |
+
+> 最低配置下 OCR 耗时约 3-5 秒，等待明显但不影响使用。
 
 ### 推荐配置
 
@@ -27,12 +30,24 @@
 | **操作系统** | Windows 10/11（64 位，22H2+） |
 | **Python** | 3.12（64 位） |
 | **PowerShell** | 5.1+（Windows 10/11 内置） |
+| **CPU** | Intel i5-13400F / AMD R5 7600 或更高 |
 | **内存** | 16 GB RAM |
-| **磁盘** | 10 GB 可用空间 |
-| **显卡** | NVIDIA GTX 1060 或更高（CUDA 12.6，GPU 加速 OCR 约 15x CPU） |
-| **网络** | 国内宽带（依赖/模型均走清华镜像和百度 BOS） |
+| **磁盘** | SSD，10 GB 可用空间 |
+| **显卡** | NVIDIA GTX 1060 或更高（CUDA 11.8/12.6/12.9，GPU 加速 OCR 约 15x CPU） |
+| **网络** | 国内宽带（依赖/模型均走国内镜像） |
 
-> **注意**：32 位 PowerShell 可能无法检测到 64 位 Python，请确保使用 64 位 PowerShell 运行启动器。
+> **CPU 模式性能参考**：i5-13400F 约 0.8 秒/张，R7 7840H 约 1 秒/张，双核老 CPU 约 3-5 秒/张。
+
+### GPU 与 CPU 模式说明
+
+| 模式 | 适用场景 | OCR 耗时 |
+|------|---------|---------|
+| **GPU 模式** | 有 NVIDIA 显卡 + CUDA 11.8/12.6/12.9 | 50-100ms |
+| **CPU 模式** | 无独显 / A 卡 / i 卡 / 旧 N 卡 | 0.5-5s（取决于 CPU） |
+
+> **注意**：
+> - PaddlePaddle 仅官方支持 NVIDIA GPU（CUDA），A 卡和 i 卡只能用 CPU 模式
+> - 32 位 PowerShell 可能无法检测到 64 位 Python，请确保使用 64 位 PowerShell 运行启动器
 
 ### 平台兼容性
 
@@ -90,10 +105,25 @@
 2. 复制粘贴以下命令并回车：
 
 ```
-pip install PyQt5 Pillow openai httpx pyautogui keyboard paddlepaddle-gpu paddleocr paddlex -i https://mirrors.aliyun.com/pypi/simple
+pip install PyQt5 Pillow openai httpx pyautogui keyboard paddleocr paddlex -i https://mirrors.aliyun.com/pypi/simple
 ```
 
-3. 如果上面的命令报错，换一个镜像源试试：
+3. 安装 PaddlePaddle（根据您的 GPU 选择）：
+
+```
+# GPU 版本（推荐，需要 NVIDIA GPU）
+# CUDA 11.8：
+pip install paddlepaddle-gpu==3.3.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu118/
+# CUDA 12.6：
+pip install paddlepaddle-gpu==3.3.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu126/
+# CUDA 12.9：
+pip install paddlepaddle-gpu==3.3.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu129/
+
+# CPU 版本（无 GPU 或 GPU 不兼容时）：
+pip install paddlepaddle==3.3.0 -i https://www.paddlepaddle.org.cn/packages/stable/cpu/
+```
+
+4. 如果上面的命令报错，换一个镜像源试试：
 
 ```
 pip install -r requirements.txt -i https://mirrors.cloud.tencent.com/pypi/simple

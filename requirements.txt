@@ -5,10 +5,12 @@ PyQt5>=5.15.0
 Pillow>=10.0.0
 
 # ========== OCR ==========
-# 有 NVIDIA GPU 的用户安装：
-paddlepaddle-gpu>=3.0.0
-# 没有 GPU 的用户安装 CPU 版本（二选一）：
-# paddlepaddle>=3.0.0
+# PaddlePaddle 需要根据 GPU/CUDA 版本单独安装，请使用 start.ps1 自动安装
+# 或手动安装（三选一）：
+#   CPU 版:      python -m pip install paddlepaddle==3.3.0 -i https://www.paddlepaddle.org.cn/packages/stable/cpu/
+#   CUDA 11.8:   python -m pip install paddlepaddle-gpu==3.3.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu118/
+#   CUDA 12.6:   python -m pip install paddlepaddle-gpu==3.3.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu126/
+#   CUDA 12.9:   python -m pip install paddlepaddle-gpu==3.3.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu129/
 
 paddleocr>=3.0.0
 paddlex>=3.0.0
