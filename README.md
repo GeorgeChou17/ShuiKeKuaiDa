@@ -79,8 +79,8 @@
 | **华为鸿蒙电脑（OsEasy 虚拟机）** | x86 模拟层性能可能不足以运行 PaddlePaddle + OCR 推理。 | ⭐⭐⭐⭐⭐ |
 | **Debian / ARM64**（树莓派 5、Rockchip 等） | PaddlePaddle 无 Linux ARM64 wheel；CPU 性能较弱，OCR 推理速度可能极慢。 | ⭐⭐⭐⭐ |
 | **Android Termux + Debian 13 ARM64** | 无桌面环境，`pyautogui` 无法模拟点击；PaddlePaddle ARM64 需自行编译。 | ⭐⭐⭐⭐⭐ |
-| **Android 小小电脑** ([tiny_computer](https://github.com/Cateners/tiny_computer)) | 底层为 Linux ARM64，受限于架构和 Android 沙箱。 | ⭐⭐⭐⭐⭐ |
-| **Android XoDos2** ([XoDos2](https://github.com/xodiosx/XoDos2)) | DOS 模拟环境，需确认是否支持 Python 3.9+ 运行时。 | ⭐⭐⭐⭐⭐ |
+| **Android 小小电脑** ([tiny_computer](https://github.com/Cateners/tiny_computer)) | 底层为 debian ARM64，受限于架构和 Android 沙箱。 | ⭐⭐⭐⭐⭐ |
+| **Android XoDos2** ([XoDos2](https://github.com/xodiosx/XoDos2)) | 同小小电脑 | ⭐⭐⭐⭐⭐ |
 | **Apple A 系列芯片**（iPad/iPhone） | 需通过 UTM 等虚拟机运行 Windows/Linux，性能高度受限。 | ⭐⭐⭐⭐⭐ |
 
 > 以上平台均**未经开发者测试**，理论上存在障碍但并非绝对不可能。如果你在这些平台上成功运行了水课快答，欢迎提交反馈报告。
