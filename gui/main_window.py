@@ -887,7 +887,7 @@ class MainWindow(QMainWindow):
         
         # OCR 性能设置
         lang_map = {0: "ch", 1: "en", 2: "ch_en"}
-        device_map = {0: "auto", 1: "gpu", 2: "cpu"}
+        device_map = {0: "cpu", 1: "auto", 2: "gpu"}
         self.config.set_ocr_settings(
             use_angle_cls=self.chk_ocr_angle.isChecked(),
             lang=lang_map.get(self.combo_ocr_lang.currentIndex(), "ch"),

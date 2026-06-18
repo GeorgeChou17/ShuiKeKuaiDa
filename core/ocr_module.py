@@ -309,15 +309,17 @@ def _get_paddle_ocr(use_angle_cls: bool = True, lang: str = "ch", device: str = 
         
         # PaddleOCR 3.x — GPU 自动使用（如果安装了 paddlepaddle-gpu，支持 CUDA 11.8/12.6/12.9）
         # 通过设置环境变量或 Paddle API 控制设备
-        if actual_device == "gpu":
-            # 确保 Paddle 使用 GPU
-            try:
-                import paddle
-                if paddle.is_compiled_with_cuda():
-                    paddle.set_device("gpu")
-                    logger.info("Paddle 已设置为 GPU 模式")
-            except Exception as e:
-                logger.warning(f"设置 GPU 模式失败: {e}，回退 CPU")
+        # 确保 Paddle 使用正确的设备
+        try:
+            import paddle
+            if actual_device == "gpu" and paddle.is_compiled_with_cuda():
+                paddle.set_device("gpu")
+                logger.info("Paddle 已设置为 GPU 模式")
+            elif actual_device == "cpu":
+                paddle.set_device("cpu")
+                logger.info("Paddle 已设置为 CPU 模式")
+        except Exception as e:
+            logger.warning(f"设置设备模式失败: {e}")
         
         # PaddleOCR 3.x 基于 paddlex pipeline，初始化时必须能加载 configs/pipelines/OCR.yaml
         # 打包后这个文件通过 main.spec 的 datas 参数确保被包含
