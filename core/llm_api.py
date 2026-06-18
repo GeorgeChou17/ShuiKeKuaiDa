@@ -186,10 +186,18 @@ class LLMClient:
         full_content = ""
         thinking_content = ""
 
+        # 配置超时：连接超时30秒，读取超时由用户设置（默认300秒）
+        timeout_config = httpx.Timeout(
+            connect=30.0,
+            read=float(self.timeout),
+            write=30.0,
+            pool=30.0
+        )
+
         try:
             with httpx.stream(
                 "POST", url, headers=headers,
-                json=payload, timeout=float(self.timeout)
+                json=payload, timeout=timeout_config
             ) as resp:
                 if resp.status_code != 200:
                     body = resp.read().decode("utf-8", errors="replace")
@@ -241,8 +249,17 @@ class LLMClient:
         import httpx
 
         payload["stream"] = False
+        
+        # 配置超时：连接超时30秒，读取超时由用户设置（默认300秒）
+        timeout_config = httpx.Timeout(
+            connect=30.0,
+            read=float(self.timeout),
+            write=30.0,
+            pool=30.0
+        )
+        
         try:
-            resp = httpx.post(url, headers=headers, json=payload, timeout=float(self.timeout))
+            resp = httpx.post(url, headers=headers, json=payload, timeout=timeout_config)
         except httpx.TimeoutException:
             raise LLMAPIError(f"请求超时（{self.timeout}秒），请增加超时时间或检查网络")
         except httpx.ConnectError:
@@ -451,9 +468,17 @@ class LLMWorker(QThread):
             # 非流式模式：不传 on_token/on_thinking 回调
             if self.client.stream_enabled:
                 def on_token(tok: str):
-                    self.token_received.emit(tok)
+                    try:
+                        self.token_received.emit(tok)
+                    except Exception:
+                        pass
+
                 def on_thinking(txt: str):
-                    self.thinking_received.emit(txt)
+                    try:
+                        self.thinking_received.emit(txt)
+                    except Exception:
+                        pass
+
                 result = self.client.chat_completion(
                     self.messages,
                     on_token=on_token,

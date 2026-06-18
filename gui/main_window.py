@@ -132,7 +132,7 @@ class CountdownDialog(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("水课快答 v1.3.2")
+        self.setWindowTitle("水课快答 v1.3.3")
         self.setWindowIcon(QIcon("logo.ico"))
         self.resize(1000, 720)
         # 主界面字体
@@ -168,7 +168,7 @@ class MainWindow(QMainWindow):
         self._setup_hotkeys()   # 注册全局快捷键
         self._init_floating_window()
 
-        logging.info("水课快答 v1.3.2 启动成功")
+        logging.info("水课快答 v1.3.3 启动成功")
 
     # ========================================================
     # UI 构建
@@ -602,7 +602,7 @@ class MainWindow(QMainWindow):
         layout.addRow(QLabel("—— OCR 性能设置 ——"))
         
         self.combo_ocr_device = QComboBox()
-        self.combo_ocr_device.addItems(["auto（自动选择）", "gpu（强制GPU）", "cpu（仅CPU）"])
+        self.combo_ocr_device.addItems(["cpu（仅CPU，推荐）", "auto（自动选择，可能不稳定）", "gpu（强制GPU）"])
         layout.addRow("OCR 计算设备：", self.combo_ocr_device)
         
         self.chk_ocr_angle = QCheckBox("启用角度分类（√=更准但更慢，取消可提速 ~30%）")
@@ -743,7 +743,7 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(tab)
         layout.setAlignment(Qt.AlignCenter)
 
-        title = QLabel("水课快答 v1.3.2")
+        title = QLabel("水课快答 v1.3.3")
         title.setStyleSheet("font-size:24px; font-weight:bold; color:#2196F3;")
         title.setAlignment(Qt.AlignCenter)
         layout.addWidget(title)
@@ -793,8 +793,8 @@ class MainWindow(QMainWindow):
         lang_map = {"ch": 0, "en": 1, "ch_en": 2}
         self.combo_ocr_lang.setCurrentIndex(lang_map.get(ocr_cfg.get("lang", "ch"), 0))
         self.spin_ocr_size.setValue(ocr_cfg.get("max_img_side", 960))
-        device_map = {"auto": 0, "gpu": 1, "cpu": 2}
-        self.combo_ocr_device.setCurrentIndex(device_map.get(ocr_cfg.get("device", "auto"), 0))
+        device_map = {"cpu": 0, "auto": 1, "gpu": 2}
+        self.combo_ocr_device.setCurrentIndex(device_map.get(ocr_cfg.get("device", "cpu"), 0))
         # 身份
         self.edit_identity.setPlainText(self.config.get_llm_identity())
         # 主观题关键词
@@ -892,7 +892,7 @@ class MainWindow(QMainWindow):
             use_angle_cls=self.chk_ocr_angle.isChecked(),
             lang=lang_map.get(self.combo_ocr_lang.currentIndex(), "ch"),
             max_img_side=self.spin_ocr_size.value(),
-            device=device_map.get(self.combo_ocr_device.currentIndex(), "auto"),
+            device=device_map.get(self.combo_ocr_device.currentIndex(), "cpu"),
         )
 
     # ========================================================
@@ -1824,11 +1824,34 @@ class MainWindow(QMainWindow):
         self.progress.setVisible(False)
         self.lbl_status.setText("就绪")
         self.lbl_status.setStyleSheet("color:#888; font-size:12px;")
+        
+        # 清理 LLM 工作线程
+        if hasattr(self, '_llm_worker') and self._llm_worker is not None:
+            try:
+                if self._llm_worker.isRunning():
+                    self._llm_worker.terminate()
+                    self._llm_worker.wait(1000)  # 等待最多1秒
+            except Exception:
+                pass
+            self._llm_worker = None
+        
+        # 清理截图器
         if hasattr(self, 'screenshot_taker'):
             try:
                 self.screenshot_taker.close()
             except Exception:
                 pass
+        
+        # 清理 OCR 缓存（释放内存）
+        try:
+            from core.ocr_module import clear_ocr_cache
+            clear_ocr_cache()
+        except Exception:
+            pass
+        
+        # 强制垃圾回收
+        import gc
+        gc.collect()
 
     # ========================================================
     # 答题步骤
@@ -1861,7 +1884,7 @@ class MainWindow(QMainWindow):
             use_angle_cls=ocr_cfg.get("use_angle_cls", True),
             lang=ocr_cfg.get("lang", "ch"),
             max_img_side=ocr_cfg.get("max_img_side", 960),
-            device=ocr_cfg.get("device", "auto"),
+            device=ocr_cfg.get("device", "cpu"),
         )
         self._ocr_worker.finished.connect(self._on_ocr_finished)
         self._ocr_worker.error.connect(self._on_ocr_error)
@@ -2129,28 +2152,32 @@ class MainWindow(QMainWindow):
         self._llm_worker.start()
 
     def _on_llm_finished(self, result: dict):
-        if not self._running:  # 用户已停止，忽略回传
-            return
-        answer = result.get("answer", "")
-        qtype = result.get("question_type", "未知")
-        analysis = result.get("analysis", "")
-        confidence = result.get("confidence", 0.0)
-        thinking = result.get("thinking", "")
+        try:
+            if not self._running:  # 用户已停止，忽略回传
+                return
+            answer = result.get("answer", "")
+            qtype = result.get("question_type", "未知")
+            analysis = result.get("analysis", "")
+            confidence = result.get("confidence", 0.0)
+            thinking = result.get("thinking", "")
 
-        info = f"题型：{qtype}\n分析：{analysis}\n答案：{answer}\n置信度：{confidence:.0%}"
-        self.txt_question_info.setText(info)
-        logging.info(f"LLM 返回：答案={answer}，置信度={confidence:.0%}")
+            info = f"题型：{qtype}\n分析：{analysis}\n答案：{answer}\n置信度：{confidence:.0%}"
+            self.txt_question_info.setText(info)
+            logging.info(f"LLM 返回：答案={answer}，置信度={confidence:.0%}")
 
-        if self.floating_win and self.config.get_floating_window_enabled():
-            self.floating_win.set_subjective_mode(False)
-            self.floating_win.set_answer(f"答案：{answer}\n\n分析：{analysis}")
-            if thinking:
-                self.floating_win.append_thinking("[思考过程] " + thinking)
-            self.floating_win.show()
-            self.floating_win.raise_()
+            if self.floating_win and self.config.get_floating_window_enabled():
+                self.floating_win.set_subjective_mode(False)
+                self.floating_win.set_answer(f"答案：{answer}\n\n分析：{analysis}")
+                if thinking:
+                    self.floating_win.append_thinking("[思考过程] " + thinking)
+                self.floating_win.show()
+                self.floating_win.raise_()
 
-        self._current_answer = answer
-        self._step_click_answer(answer)
+            self._current_answer = answer
+            self._step_click_answer(answer)
+        except Exception as e:
+            logging.error(f"_on_llm_finished 异常: {e}")
+            self._on_llm_error(str(e))
 
     def _on_llm_error(self, msg: str):
         logging.error(f"LLM 调用失败：{msg}")
@@ -2160,10 +2187,36 @@ class MainWindow(QMainWindow):
             return
         
         is_429 = "429" in msg or "限流" in msg or "Too Many Requests" in msg
+        is_empty_or_timeout = "空答案" in msg or "空响应" in msg or "超时" in msg
         retry_delay = self.config.get_retry_delay()
         
+        # 空答案/超时：自动重试但限制次数
+        if is_empty_or_timeout:
+            if not hasattr(self, '_empty_answer_retries'):
+                self._empty_answer_retries = 0
+            self._empty_answer_retries += 1
+            
+            if self._empty_answer_retries > 3:
+                self._empty_answer_retries = 0
+                QMessageBox.warning(
+                    self, "LLM 出错",
+                    f"LLM 连续返回空答案/超时（已重试 3 次）。\n\n"
+                    f"可能原因：\n"
+                    f"1. API 配额已耗尽\n"
+                    f"2. 模型暂时不可用\n\n"
+                    f"请稍后重试或更换 API 提供商。"
+                )
+                self._finish_flow()
+                return
+            
+            QTimer.singleShot(retry_delay * 1000, lambda: self._retry_current_question())
+            return
+        
+        # 重置空答案计数器
+        if hasattr(self, '_empty_answer_retries'):
+            self._empty_answer_retries = 0
+        
         if is_429:
-            # 429 限流：弹窗告知 + 自动重试（非模态 CountdownDialog，QTimer 不受 exec_() 影响）
             dialog = CountdownDialog(
                 self, "API 限流（429）",
                 f"由于 API 的多并发限制，导致模型拒绝工作。\n\n"
@@ -2175,10 +2228,9 @@ class MainWindow(QMainWindow):
             )
             dialog.retry_clicked.connect(self._retry_current_question)
             dialog.cancel_clicked.connect(self._finish_flow)
-            dialog.show()  # 非模态显示，不阻塞事件循环
-            return  # 立即返回，由信号驱动后续操作
+            dialog.show()
+            return
         else:
-            # 非 429 错误：保留原有重试逻辑
             r = QMessageBox.question(
                 self, "LLM 出错",
                 f"LLM 调用失败：{msg}\n\n是否重试当前题目？\n（选择「否」将停止答题）",
@@ -2355,6 +2407,54 @@ class MainWindow(QMainWindow):
         
         if not self._running:  # 用户已停止
             return
+        
+        # 动态检测显存（仅 GPU 模式）：剩余显存越少，检测越频繁
+        try:
+            ocr_cfg = self.config.get_ocr_settings()
+            if ocr_cfg.get("device", "cpu") in ("auto", "gpu"):
+                from core.ocr_module import get_gpu_memory_info, clear_ocr_cache
+                if not hasattr(self, '_gpu_answer_count'):
+                    self._gpu_answer_count = 0
+                    self._gpu_next_check = 5  # 首次检测在第 5 题
+                
+                self._gpu_answer_count += 1
+                if self._gpu_answer_count >= self._gpu_next_check:
+                    mem = get_gpu_memory_info()
+                    if mem["total_mb"] > 0:
+                        remaining_mb = mem["total_mb"] - mem["used_mb"]
+                        # 触发阈值：剩余显存 < 总显存的 20%，且至少需要预留 300MB
+                        threshold_mb = max(300, mem["total_mb"] * 0.2)
+                        
+                        if remaining_mb < threshold_mb:
+                            logging.info(
+                                f"GPU 显存不足：剩余 {remaining_mb:.0f}MB/{mem['total_mb']:.0f}MB "
+                                f"({mem['usage_pct']:.1f}%)，触发清理..."
+                            )
+                            clear_ocr_cache()
+                            import gc
+                            gc.collect()
+                            try:
+                                import paddle
+                                if paddle.is_compiled_with_cuda():
+                                    paddle.device.cuda.empty_cache()
+                            except Exception:
+                                pass
+                            logging.info(f"GPU 显存清理完成")
+                            self._gpu_next_check = self._gpu_answer_count + 3  # 清理后密集检测
+                        else:
+                            # 根据剩余显存比例动态计算下次检测间隔
+                            remaining_ratio = remaining_mb / mem["total_mb"]
+                            if remaining_ratio > 0.6:
+                                next_interval = 15
+                            elif remaining_ratio > 0.4:
+                                next_interval = 10
+                            elif remaining_ratio > 0.2:
+                                next_interval = 5
+                            else:
+                                next_interval = 3
+                            self._gpu_next_check = self._gpu_answer_count + next_interval
+        except Exception as e:
+            logging.debug(f"GPU 显存检测跳过: {e}")
         
         # 自动停止检查
         mode = self.config.get_stop_mode()

@@ -5,6 +5,22 @@
 """
 import sys
 import os
+import traceback
+import datetime
+
+# 全局异常钩子：捕获所有未处理的异常，记录到 crash.log
+def _global_exception_handler(exc_type, exc_value, exc_tb):
+    crash_log = os.path.join(os.path.dirname(os.path.abspath(__file__)), "crash.log")
+    tb_str = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+    try:
+        with open(crash_log, "a", encoding="utf-8") as f:
+            f.write(f"\n\n=== {datetime.datetime.now()} ===\n")
+            f.write(tb_str)
+    except Exception:
+        pass
+    sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+sys.excepthook = _global_exception_handler
 
 # PaddleOCR 3.x 在 Windows CPU 上必须禁用 OneDNN，否则推理崩溃
 # 必须在 import paddle/paddleocr 之前设置

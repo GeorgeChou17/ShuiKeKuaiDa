@@ -118,7 +118,7 @@ class ConfigManager:
             "ocr/use_angle_cls": True,      # 角度分类（关闭可提速 ~30%）
             "ocr/lang": "ch",                # 语言模型：ch/en/ch_en
             "ocr/max_img_side": 960,         # 图片预处理最大边长（减少可提速）
-            "ocr/device": "auto",            # 计算设备：auto/gpu/cpu（auto=优先GPU）
+            "ocr/device": "cpu",               # 计算设备：cpu/gpu/auto（GPU 模式可能不稳定，默认 CPU）
             # 自动刷题延迟
             "auto/delay_ms": 200,
             "auto/retry_delay": 30,          # 429 限流后自动重试等待秒数
@@ -612,10 +612,10 @@ class ConfigManager:
             "use_angle_cls": bool(self.get("ocr/use_angle_cls", True)),
             "lang": self.get("ocr/lang", "ch"),
             "max_img_side": int(self.get("ocr/max_img_side", 960)),
-            "device": self.get("ocr/device", "auto"),
+            "device": self.get("ocr/device", "cpu"),
         }
     
-    def set_ocr_settings(self, use_angle_cls: bool = True, lang: str = "ch", max_img_side: int = 960, device: str = "auto"):
+    def set_ocr_settings(self, use_angle_cls: bool = True, lang: str = "ch", max_img_side: int = 960, device: str = "cpu"):
         self.set("ocr/use_angle_cls", use_angle_cls)
         self.set("ocr/lang", lang)
         self.set("ocr/max_img_side", max_img_side)

@@ -17,7 +17,7 @@ from datetime import datetime
 
 # 配置
 APP_NAME = "水课快答"
-CURRENT_VERSION = "1.3.2"  # 当前版本，需要手动更新
+CURRENT_VERSION = "1.3.3"  # 当前版本，需要手动更新
 SCRIPT_DIR = Path(__file__).parent.absolute()
 
 # GitHub 配置

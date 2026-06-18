@@ -164,6 +164,63 @@ _paddle_ocr_initialized = False
 _last_ocr_params = (True, "ch", "auto")  # (use_angle_cls, lang, device)
 
 
+def get_gpu_memory_usage() -> float:
+    """
+    获取当前 GPU 显存使用率（百分比 0-100）
+    返回 -1 表示无法检测
+    """
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            line = result.stdout.strip().split("\n")[0]
+            used, total = line.split(",")
+            used, total = float(used.strip()), float(total.strip())
+            if total > 0:
+                return (used / total) * 100.0
+    except Exception:
+        pass
+    return -1.0
+
+
+def get_gpu_memory_info() -> dict:
+    """
+    获取 GPU 显存详细信息
+    返回: {"used_mb": float, "total_mb": float, "usage_pct": float}
+    无法检测时所有值为 -1
+    """
+    info = {"used_mb": -1.0, "total_mb": -1.0, "usage_pct": -1.0}
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            line = result.stdout.strip().split("\n")[0]
+            used, total = line.split(",")
+            used, total = float(used.strip()), float(total.strip())
+            if total > 0:
+                info["used_mb"] = used
+                info["total_mb"] = total
+                info["usage_pct"] = (used / total) * 100.0
+    except Exception:
+        pass
+    return info
+
+
+def clear_ocr_cache():
+    """清理 OCR 缓存，释放内存"""
+    global _paddle_ocr, _paddle_ocr_initialized
+    _paddle_ocr = None
+    _paddle_ocr_initialized = False
+    import gc
+    gc.collect()
+
+
 def detect_gpu_info() -> dict:
     """
     检测系统中的 GPU 设备信息
@@ -210,6 +267,14 @@ def resolve_device(device_pref: str = "auto") -> str:
     if device_pref == "gpu" or device_pref == "auto" or device_pref.startswith("gpu:"):
         gpu_info = detect_gpu_info()
         if gpu_info["available"]:
+            # 检查显存是否足够：< 2GB 时 PaddleOCR 模型加载会 OOM
+            mem = get_gpu_memory_info()
+            if mem["total_mb"] > 0 and mem["total_mb"] < 2000:
+                logger.warning(
+                    f"GPU 显存不足（仅 {mem['total_mb']:.0f}MB），"
+                    f"PaddleOCR 模型需要约 1.5GB 显存，回退到 CPU 模式"
+                )
+                return "cpu"
             # 检查优先级匹配
             if device_pref.startswith("gpu:"):
                 vendor = device_pref.split(":", 1)[1]
@@ -333,7 +398,19 @@ def recognize_image(
             return result
 
         # PaddleOCR 3.x: 使用 predict() 代替已弃用的 ocr()
-        ocr_results = list(ocr.predict(input_data))
+        try:
+            ocr_results = list(ocr.predict(input_data))
+        except Exception as e:
+            err_str = str(e)
+            # 检测 GPU OOM 等 GPU 相关错误，自动回退 CPU
+            if "out of memory" in err_str.lower() or "cuda" in err_str.lower() or "gpu" in err_str.lower():
+                logger.warning(f"GPU OCR 失败（{err_str[:100]}），回退到 CPU 模式重试...")
+                return recognize_image(
+                    img_path=img_path, img=img,
+                    use_angle_cls=use_angle_cls, lang=lang,
+                    max_img_side=max_img_side, device="cpu"
+                )
+            raise
 
         # 解析 PaddleOCR 3.x 返回结果（OCRResult 对象）
         lines = []
